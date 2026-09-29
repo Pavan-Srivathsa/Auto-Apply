@@ -85,6 +85,16 @@ def test_screen_banner_minimizes_to_a_restorable_badge():
     assert 'host.addEventListener("click"' in script
 
 
+def test_application_bar_stays_expanded_after_automation_runs():
+    """Jobright finishing is a handoff to the human, not a reason to hide."""
+    script = (runner.ROOT / "capture" / "content.js").read_text()
+    assert "let automationHoldsBanner = false;" in script
+    assert "automationHoldsBanner = true;" in script
+    assert "if (automationHoldsBanner) return;" in script
+    assert "if (automationHoldsBanner) expandBanner();" in script
+    assert "stopAutoCollapse();" in script
+
+
 def test_failed_screen_still_offers_add_to_autopilot():
     script = (runner.ROOT / "capture" / "content.js").read_text()
     assert 'const canRetry = !pending && (verdict === "error" || verdict === "not_a_job")' in script

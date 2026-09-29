@@ -7,3 +7,8 @@ Intent: The Changes and Before-and-after resume PDFs compile even when the maste
 Asked: "I need another button here" to inspect the employer form, then choose Autopilot or Jobright followed by a correction pass.
 Changed: `review/index.html`, `server/review.py`, `server/runner.py`, `browser/fill.py`, `browser/forms/engine.py`, and their tests.
 Intent: An approved job offers Open application, Autopilot fill, and Jobright + check. The check is deterministic from saved profile facts/corrections, never model judgement, and protected fields remain untouched.
+
+## 2026-09-29 — Keep the form handoff visible
+Asked: "After Jobright autofill is done ... make sure [the bar] stays."
+Changed: `capture/content.js` and `tests/test_capture.py`.
+Intent: Once any automation works on an application form, the full Autopilot bar remains expanded through the handoff to the human; only an explicit minimize click folds it.

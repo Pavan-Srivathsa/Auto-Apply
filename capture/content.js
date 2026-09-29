@@ -117,6 +117,10 @@ function formControls() {
 // core turns purple and flows while it is "working"; the bar shows the
 // note. Survives a re-render: the state is kept here, not in the DOM.
 const AUTOMATION = { state: "idle", note: "" };
+// Once automation has touched an application form, its bar stays expanded.
+// The result and document chips are checkpoint 2; folding them into a badge
+// as Jobright finishes makes the handoff look as though it disappeared.
+let automationHoldsBanner = false;
 let applyAutomation = () => {};
 window.__autopilotAutomation = (state, note) => {
   // Jobright's autofill (pressed by the injector) usually reports done after
@@ -129,6 +133,10 @@ window.__autopilotAutomation = (state, note) => {
   }
   AUTOMATION.state = state || "idle";
   AUTOMATION.note = note || "";
+  if (AUTOMATION.state !== "idle") {
+    automationHoldsBanner = true;
+    expandBanner();
+  }
   applyAutomation();
 };
 
@@ -464,7 +472,6 @@ function render(result, { pending = false } = {}) {
   const shell = shadow.querySelector(".shell");
   const badge = shadow.querySelector("button.badge");
   const auto = shadow.querySelector(".auto");
-  expandBanner = () => { if (bannerCollapsed) expand(); };
   paintChanges = () => {
     const box = shadow.getElementById("changes");
     if (!box) return;
@@ -517,11 +524,27 @@ function render(result, { pending = false } = {}) {
   // corner badge. Restoring it only expands this DOM; it never screens again.
   let closing = 0;
   let collapseTimer = null;
+  const stopAutoCollapse = () => {
+    clearTimeout(collapseTimer); collapseTimer = null;
+    cancelAnimationFrame(closing);
+    closeBar.style.width = "0";
+  };
+  expandBanner = () => {
+    stopAutoCollapse();
+    if (bannerCollapsed) expand();
+  };
+  if (automationHoldsBanner) expandBanner();
   const autoCollapse = () => {
+    if (automationHoldsBanner) return;
     const from = performance.now();
     collapseTimer = setTimeout(() => {
       collapseTimer = null;
       cancelAnimationFrame(closing);
+      if (automationHoldsBanner) {
+        closeBar.style.width = "0";
+        expand();
+        return;
+      }
       closeBar.style.width = "100%";
       collapse();
     }, AUTO_COLLAPSE_MS);
@@ -600,8 +623,7 @@ function render(result, { pending = false } = {}) {
       // that reaches it; this one must not.
       e.stopPropagation();
       if (timer) cancel();
-      clearTimeout(collapseTimer); collapseTimer = null;
-      cancelAnimationFrame(closing);
+      stopAutoCollapse();
       collapse();
     }
     if (action === "expand") expand();
