@@ -43,7 +43,8 @@ def python_executable() -> str:
 _fills: dict[str, tuple[subprocess.Popen, float]] = {}
 
 
-def launch(script: str, job_id: str, log_dir: Optional[Path] = None) -> Optional[int]:
+def launch(script: str, job_id: str, log_dir: Optional[Path] = None,
+           env: Optional[dict[str, str]] = None) -> Optional[int]:
     """Start `script <job_id>` detached. Returns its pid, or None if not started."""
     target = ROOT / script
     if not target.exists():
@@ -57,12 +58,15 @@ def launch(script: str, job_id: str, log_dir: Optional[Path] = None) -> Optional
     log.write(f"\n--- {script} {job_id} ---\n")
     log.flush()
 
+    child_env = os.environ.copy()
+    child_env.update(env or {})
     process = subprocess.Popen(
         [python_executable(), str(target), job_id],
         cwd=str(ROOT),
         stdout=log,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
+        env=child_env,
         # Its own process group, so stopping the server does not kill a fill
         # halfway through and leave a half-completed form behind.
         start_new_session=True,

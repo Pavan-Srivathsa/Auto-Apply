@@ -734,9 +734,9 @@ async function show(id) {
         ${data.status === "filling"
           ? `<button class="act" id="submitted">I submitted it</button>` : ""}
         ${["approved", "filling", "failed"].includes(data.status)
-          ? `<button class="act primary" id="fillNow">${
-              data.fill ? "Fill it again" : data.status === "filling"
-                ? "Restart the fill" : "Fill the form now"}</button>` : ""}
+          ? `<a class="act" href="${escape(job.url)}" target="_blank" rel="noreferrer">Open application</a>
+             <button class="act" id="fillAutopilot">Autopilot fill</button>
+             <button class="act primary" id="fillJobright">Jobright + check</button>` : ""}
         ${data.status !== "skipped" && data.status !== "submitted"
           ? `<button class="act danger" id="reject">Reject…</button>` : ""}
       </div>` : ""}
@@ -845,7 +845,9 @@ async function show(id) {
       $("resumeView").src = `/review/${id}/file/${button.dataset.file}${stamp}#toolbar=0&navpanes=0&view=Fit`;
     };
   }
-  if ($("fillNow")) $("fillNow").onclick = () => fillAgain(id);
+  if ($("fillNow")) $("fillNow").onclick = () => fillAgain(id, "jobright_check");
+  if ($("fillAutopilot")) $("fillAutopilot").onclick = () => fillAgain(id, "autopilot");
+  if ($("fillJobright")) $("fillJobright").onclick = () => fillAgain(id, "jobright_check");
   if ($("reveal")) wireReveal(id);
   if ($("askGo")) wireThread(id, data);
   if ($("rememberGo")) wireRemember(id);
@@ -1070,10 +1072,12 @@ function wireReveal(id) {
   };
 }
 
-async function fillAgain(id) {
+async function fillAgain(id, mode) {
   await act(id, async () => {
     try {
-      await api(`/review/${id}/fill`, { method: "POST", body: "{}" });
+      await api(`/review/${id}/fill`, {
+        method: "POST", body: JSON.stringify({ mode }),
+      });
       return;
     } catch (err) {
       if (err.detail?.error !== "fill_running") throw err;
@@ -1081,7 +1085,9 @@ async function fillAgain(id) {
         "This will kill the current job and restart. Are you sure you want to continue?");
       if (!ok) return;
     }
-    await api(`/review/${id}/fill`, { method: "POST", body: JSON.stringify({ force: true }) });
+    await api(`/review/${id}/fill`, {
+      method: "POST", body: JSON.stringify({ force: true, mode }),
+    });
   });
 }
 

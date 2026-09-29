@@ -597,3 +597,61 @@ def test_without_the_agent_a_missing_resume_upload_is_a_failed_fill(monkeypatch,
     result = asyncio.run(fill.fill_async("https://example.com/apply", resume, tmp_path / "shot.png"))
     assert not result.ok and not result.resume_uploaded
     assert result.errors[0].startswith("the tailored resume was never uploaded")
+
+
+def test_jobright_check_uses_the_full_profile_without_a_browser_agent(monkeypatch, tmp_path):
+    monkeypatch.setenv(fill.FILL_MODE_ENV, fill.JOBRIGHT_CHECK_MODE)
+    monkeypatch.setenv(fill.CDP_URL, "http://127.0.0.1:1")
+    profile = fill.forms.Profile({"first_name": "Jane", "email": "jane@example.com"})
+    monkeypatch.setattr(fill.forms, "load", lambda: profile)
+
+    async def reuse(cdp_url, url):
+        return fill.autofill.AutofillResult(
+            target_id="TAB1", clicked=True, finished=True,
+        )
+
+    monkeypatch.setattr(fill.autofill, "reuse", reuse)
+    seen = {}
+
+    async def upload_documents(cdp_url, target_id, adapter, resume=None, cover_letter=None,
+                               answerer=None, corrections=None, fill_known=False):
+        seen.update(
+            answerer=answerer, corrections=corrections, fill_known=fill_known,
+        )
+        return fill.forms.Report(
+            target_id=target_id, resume_uploaded=True, resume_name=resume.name,
+            filled=["First Name", "Email"],
+        )
+
+    monkeypatch.setattr(fill.forms, "upload_documents", upload_documents)
+
+    async def nothing(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(fill, "_screenshot_cdp", nothing)
+    monkeypatch.setattr(fill, "_write_report", nothing)
+    monkeypatch.setattr(fill.autofill, "notify", nothing)
+
+    resume = tmp_path / "Jane_Resume.pdf"
+    resume.write_bytes(b"%PDF")
+    result = asyncio.run(fill.fill_async(
+        "https://example.com/apply", resume, tmp_path / "shot.png",
+        answerer=lambda question: "model prose",
+    ))
+
+    assert result.ok
+    assert seen == {"answerer": None, "corrections": profile, "fill_known": True}
+
+
+def test_autopilot_mode_refuses_an_unsupported_form_instead_of_using_jobright(
+        monkeypatch, tmp_path):
+    monkeypatch.setenv(fill.FILL_MODE_ENV, fill.AUTOPILOT_MODE)
+    monkeypatch.setenv(fill.CDP_URL, "http://127.0.0.1:1")
+    monkeypatch.setattr(fill.forms, "adapter_for", lambda url: None)
+    resume = tmp_path / "Jane_Resume.pdf"
+    resume.write_bytes(b"%PDF")
+
+    with pytest.raises(fill.FillError, match=r"Use Jobright \+ check"):
+        asyncio.run(fill.fill_async(
+            "https://example.com/apply", resume, tmp_path / "shot.png",
+        ))

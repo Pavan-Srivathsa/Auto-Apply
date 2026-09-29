@@ -1343,15 +1343,17 @@ NOT_A_FORM = ("no application form on this page: press Apply and sign in, "
 
 async def run_documents(page: Session, adapter: Adapter, target_id: str = "",
                         resume: Optional[Path] = None, cover_letter: Optional[Path] = None,
-                        answerer=None, corrections: Optional[Profile] = None) -> Report:
+                        answerer=None, corrections: Optional[Profile] = None,
+                        fill_known: bool = False) -> Report:
     """The files, the corrections and the open questions, on a form
     something else has filled: the tailored resume over whatever Jobright
     attached, the cover letter where there is a slot for one, every field
     the human corrected on an earlier form set to that value when a
-    `corrections` profile is given, then every free-form question answered
-    by the tailor model when an `answerer` is given. No other field is
-    touched. `attempted` stays False so the agent's task is the Jobright
-    one; the upload flags, `corrected` and `answered` are what change."""
+    `corrections` profile is given. With `fill_known`, every ordinary field
+    that contradicts that profile (or is blank) is set too; protected fields
+    remain untouched. Then every free-form question is answered by the tailor
+    model when an `answerer` is given. `attempted` stays False so the agent's
+    task is the Jobright one; the report lists what this pass changed."""
     # `Profile.__bool__` is its contact details; a store of corrections alone is
     # falsy, so the test is on None, not truth.
     engine = Engine(page, adapter, corrections if corrections is not None else Profile({}), resume, cover_letter)
@@ -1389,6 +1391,14 @@ async def run_documents(page: Session, adapter: Adapter, target_id: str = "",
     await engine.upload_files(fields)
     # The uploads may have re-rendered the form; read it again.
     fields = await engine.scan() or fields
+    if fill_known:
+        report.note = "checked after Jobright"
+        for f in fields:
+            try:
+                await engine.fill_field(f)
+            except Exception as error:  # noqa: BLE001 - one field never stops the rest
+                report.errors.append(f"checking {f.question[:60]!r}: {error}")
+        fields = await engine.scan() or fields
     if corrections is not None and corrections.corrections:
         await engine.apply_corrections(fields)
         fields = await engine.scan() or fields
@@ -1399,9 +1409,12 @@ async def run_documents(page: Session, adapter: Adapter, target_id: str = "",
 
 async def upload_documents(cdp_url: str, target_id: str, adapter: Adapter,
                            resume: Optional[Path] = None, cover_letter: Optional[Path] = None,
-                           answerer=None, corrections: Optional[Profile] = None) -> Report:
+                           answerer=None, corrections: Optional[Profile] = None,
+                           fill_known: bool = False) -> Report:
     """`run_documents` in the tab `target_id`, attached over CDP. The tab
     stays open; the agent takes over in it afterwards."""
     async with attached(cdp_url, target_id=target_id) as (page, _):
         await page.send("DOM.enable")
-        return await run_documents(page, adapter, target_id, resume, cover_letter, answerer, corrections)
+        return await run_documents(
+            page, adapter, target_id, resume, cover_letter, answerer, corrections, fill_known,
+        )

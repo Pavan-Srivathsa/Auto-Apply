@@ -40,12 +40,16 @@ def test_launch_starts_the_script_detached(tmp_path, monkeypatch):
             return None
 
     monkeypatch.setattr(runner.subprocess, "Popen", FakePopen)
-    pid = runner.launch("apply.py", "c4f3", log_dir=tmp_path)
+    pid = runner.launch(
+        "apply.py", "c4f3", log_dir=tmp_path,
+        env={"AUTOPILOT_FILL_MODE": "jobright_check"},
+    )
 
     assert pid == 4242
     assert seen["argv"][0] == sys.executable, "the venv interpreter must be inherited"
     assert seen["argv"][1].endswith("apply.py")
     assert seen["argv"][2] == "c4f3"
+    assert seen["kwargs"]["env"]["AUTOPILOT_FILL_MODE"] == "jobright_check"
     assert seen["kwargs"]["start_new_session"] is True, (
         "a fill must survive the server stopping, or it leaves a half-filled form")
     assert (tmp_path / "apply_c4f3.log").exists()

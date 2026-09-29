@@ -66,6 +66,7 @@ class FillRequest(BaseModel):
 
     note: Optional[str] = None
     force: bool = False
+    mode: str = "jobright_check"
 
 
 class Rejection(BaseModel):
@@ -416,6 +417,7 @@ def approve(job_id: str, decision: Decision) -> dict:
 # run whose browser died leaves the job sitting there, and the reviewer needs
 # to be able to start another without first repairing the state by hand.
 REFILLABLE = (Status.APPROVED, Status.FILLING, Status.FILLED, Status.FAILED)
+FILL_MODES = ("autopilot", "jobright_check")
 
 
 @router.post("/{job_id}/fill")
@@ -428,6 +430,8 @@ def fill_now(job_id: str, request: FillRequest) -> dict:
     The page only sends `force` after the human has confirmed.
     """
     job, app_dir = _job_and_dir(job_id)
+    if request.mode not in FILL_MODES:
+        raise HTTPException(422, f"fill mode must be one of: {', '.join(FILL_MODES)}")
     if job.status not in REFILLABLE:
         raise HTTPException(
             409, f"job is {job.status.value}; approve it before filling"
@@ -445,12 +449,17 @@ def fill_now(job_id: str, request: FillRequest) -> dict:
     if running:
         runner.stop_fill(job_id)
         store.set_status(app_dir, Status.APPROVED, f"fill {running} killed for a restart")
-    pid = runner.launch("apply.py", job_id)
+    pid = runner.launch(
+        "apply.py", job_id, env={"AUTOPILOT_FILL_MODE": request.mode},
+    )
     if not pid:
         raise HTTPException(500, "could not start apply.py")
     # Back to APPROVED so apply.py, which only touches approved jobs, will
     # pick it up, and so a stuck FILLING cannot wedge the job permanently.
-    store.set_status(app_dir, Status.APPROVED, f"fill restarted (pid {pid})")
+    store.set_status(
+        app_dir, Status.APPROVED,
+        f"{request.mode.replace('_', ' ')} fill started (pid {pid})",
+    )
     queue.update(job_id, status=Status.APPROVED)
     return {"id": job_id, "filling": True, "pid": pid}
 

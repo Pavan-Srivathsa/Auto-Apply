@@ -332,7 +332,7 @@ def test_rejecting_never_starts_the_fill(client, monkeypatch):
 
 
 def test_fill_now_requires_an_approved_job(client, monkeypatch):
-    monkeypatch.setattr(runner, "launch", lambda script, jid: 77)
+    monkeypatch.setattr(runner, "launch", lambda script, jid, **kwargs: 77)
     job_id, _ = reviewable_job()
     assert client.post(f"/review/{job_id}/fill", json={}).status_code == 409
 
@@ -344,7 +344,7 @@ def test_fill_now_requires_an_approved_job(client, monkeypatch):
                                     Status.FAILED])
 def test_a_fill_can_always_be_restarted(client, monkeypatch, status):
     """A run whose browser died must not wedge the job."""
-    monkeypatch.setattr(runner, "launch", lambda script, jid: 77)
+    monkeypatch.setattr(runner, "launch", lambda script, jid, **kwargs: 77)
     job_id, _ = reviewable_job()
     queue.update(job_id, status=status)
 
@@ -390,7 +390,7 @@ class LiveFill:
 def test_fill_is_refused_while_one_is_running(client, monkeypatch):
     """One fill per job: a second apply.py on the same tab undoes the first."""
     monkeypatch.setattr(runner, "launch",
-                        lambda script, jid: pytest.fail("must not start a second fill"))
+                        lambda script, jid, **kwargs: pytest.fail("must not start a second fill"))
     job_id, _ = reviewable_job()
     queue.update(job_id, status=Status.FILLING)
     runner._fills[job_id] = (LiveFill(4242), 0.0)
@@ -407,7 +407,10 @@ def test_forced_fill_kills_the_running_one_first(client, monkeypatch):
     """The page sends force only after the human confirmed the kill."""
     order = []
     monkeypatch.setattr(runner, "stop_fill", lambda jid: order.append(("stop", jid)) or 4242)
-    monkeypatch.setattr(runner, "launch", lambda script, jid: order.append(("start", jid)) or 77)
+    monkeypatch.setattr(
+        runner, "launch",
+        lambda script, jid, **kwargs: order.append(("start", jid, kwargs["env"])) or 77,
+    )
     job_id, _ = reviewable_job()
     queue.update(job_id, status=Status.FILLING)
     runner._fills[job_id] = (LiveFill(4242), 0.0)
@@ -416,7 +419,32 @@ def test_forced_fill_kills_the_running_one_first(client, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["pid"] == 77
-    assert order == [("stop", job_id), ("start", job_id)]
+    assert order == [
+        ("stop", job_id),
+        ("start", job_id, {"AUTOPILOT_FILL_MODE": "jobright_check"}),
+    ]
+
+
+def test_fill_mode_is_passed_only_to_the_fill_process(client, monkeypatch):
+    launched = {}
+
+    def launch(script, job_id, **kwargs):
+        launched.update(script=script, job_id=job_id, **kwargs)
+        return 77
+
+    monkeypatch.setattr(runner, "launch", launch)
+    job_id, _ = reviewable_job()
+    queue.update(job_id, status=Status.APPROVED)
+
+    response = client.post(
+        f"/review/{job_id}/fill", json={"mode": "autopilot"},
+    )
+
+    assert response.status_code == 200
+    assert launched["env"] == {"AUTOPILOT_FILL_MODE": "autopilot"}
+    assert client.post(
+        f"/review/{job_id}/fill", json={"mode": "browser_agent"},
+    ).status_code == 422
 
 
 def test_detail_reports_the_running_fill(client, monkeypatch):

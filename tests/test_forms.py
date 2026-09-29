@@ -285,10 +285,11 @@ def test_the_engine_never_clicks_a_submit_control():
     assert "kill" not in source and "Target.closeTarget" not in source and "Page.close" not in source
 
 
-def run_documents(page, resume=None, cover=None, adapter=None, answerer=None, corrections=None):
+def run_documents(page, resume=None, cover=None, adapter=None, answerer=None,
+                  corrections=None, fill_known=False):
     return asyncio.run(engine.run_documents(page, adapter or forms.Greenhouse(), "TARGET1234",
                                             resume=resume, cover_letter=cover, answerer=answerer,
-                                            corrections=corrections))
+                                            corrections=corrections, fill_known=fill_known))
 
 
 def test_corrected_fields_go_over_what_autofill_left_by_label_only():
@@ -349,6 +350,33 @@ def test_documents_only_uploads_and_touches_no_field(tmp_path):
     # Each document we put on gets the dot; the untouched field does not.
     assert [ref for ref, _ in page.marked] == ["5", "6"]
     assert "tailored resume" in page.marked[0][1] and "cover letter" in page.marked[1][1]
+
+
+def test_jobright_check_corrects_known_fields_and_leaves_protected_fields():
+    profile = Profile({
+        "first_name": "Jane",
+        "email": "jane@example.com",
+        "corrections": {"Location": {"value": "Austin, Texas, United States"}},
+    })
+    page = FakePage([
+        gh_field("1", id="first_name", label="First Name *", value="Janet"),
+        gh_field("2", id="email", label="Email *", value=""),
+        gh_field("3", id="job_application_location", label="Location", value="Dallas"),
+        gh_field("4", tag="textarea", kind="textarea", label="Why us?", value="Jobright prose"),
+        gh_field("5", kind="select", label="Will you require sponsorship?",
+                 options=[{"text": "Yes", "value": "y"}, {"text": "No", "value": "n"}]),
+        gh_field("6", id="resume", type="file", kind="file", name="resume", label="Resume/CV *"),
+    ])
+
+    report = run_documents(page, corrections=profile, fill_known=True)
+
+    assert page.fields["1"]["value"] == "Jane"
+    assert page.fields["2"]["value"] == "jane@example.com"
+    assert page.fields["3"]["value"] == "Austin, Texas, United States"
+    assert page.fields["4"]["value"] == "Jobright prose", "free prose needs a human or answer model"
+    assert page.fields["5"]["value"] == "", "protected fields are never corrected"
+    assert report.note == "checked after Jobright"
+    assert "First Name *" in report.filled and "Email *" in report.filled
 
 
 def test_free_questions_are_answered_by_the_model_and_marked(tmp_path):

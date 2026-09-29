@@ -121,6 +121,11 @@ DOCS_BY_CODE = "AUTOPILOT_DOCS_BY_CODE"
 # documents by code, a screenshot, and the tab is the human's. The fill
 # counts as done when the tailored resume is on the form.
 AGENT_ENV = "AUTOPILOT_AGENT"
+# Per-run choice from the review page. Empty keeps the existing configured
+# flow for automatic fills started elsewhere.
+FILL_MODE_ENV = "AUTOPILOT_FILL_MODE"
+AUTOPILOT_MODE = "autopilot"
+JOBRIGHT_CHECK_MODE = "jobright_check"
 
 # Where the applicant is, as every location field on every form must read.
 AUTOFILL_STEP = """1. If a Jobright autofill button or panel is offered, click it and let it
@@ -484,15 +489,18 @@ async def fill_async(
     cover_letter_pdf: Optional[Path] = None,
     answerer=None,
 ) -> FillResult:
-    from browser_use import Agent, Browser, ChatOpenAI
-
-    agent_on = os.environ.get(AGENT_ENV, "1") != "0"
+    fill_mode = os.environ.get(FILL_MODE_ENV, "").strip()
+    deterministic_mode = fill_mode in (AUTOPILOT_MODE, JOBRIGHT_CHECK_MODE)
+    agent_on = os.environ.get(AGENT_ENV, "1") != "0" and not deterministic_mode
     api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if agent_on and not api_key:
         raise FillError("OPENROUTER_API_KEY is unset")
 
     cdp_url = resolve_cdp_url(headless)
-    browser = build_browser(Browser, headless=headless)
+    browser = None
+    if agent_on:
+        from browser_use import Agent, Browser, ChatOpenAI
+        browser = build_browser(Browser, headless=headless)
 
     # Step one in code, two ways. On a system with an adapter and a
     # base/form.json, the form is filled here without a model and the
@@ -503,7 +511,11 @@ async def fill_async(
     pressed = autofill.AutofillResult(note="skipped")
     adapter = forms.adapter_for(url)
     profile = forms.load() if adapter else None
-    if adapter and profile and os.environ.get(FORM_FILL_ENV, "1") != "0":
+    form_fill_on = (
+        fill_mode == AUTOPILOT_MODE
+        or (fill_mode != JOBRIGHT_CHECK_MODE and os.environ.get(FORM_FILL_ENV, "1") != "0")
+    )
+    if adapter and profile and form_fill_on:
         try:
             filled = await forms.fill(cdp_url, url, adapter, profile, resume_pdf, cover_letter_pdf)
         except Exception as error:  # noqa: BLE001 - the agent is the fallback
@@ -511,7 +523,13 @@ async def fill_async(
         log.info(filled.summary())
     elif adapter and not profile:
         filled.note = "base/form.json is missing"
-    if not filled.attempted and os.environ.get(AUTOFILL_BY_CODE, "1") != "0":
+    if fill_mode == AUTOPILOT_MODE and not filled.attempted:
+        reason = filled.note or "no deterministic adapter for this application system"
+        raise FillError(
+            f"Autopilot fill could not start: {reason}. Use Jobright + check for this form."
+        )
+    if (not filled.attempted and fill_mode != AUTOPILOT_MODE
+            and os.environ.get(AUTOFILL_BY_CODE, "1") != "0"):
         # The injector presses Autofill when the human opens the form; when
         # that tab is still open the fill works there, no second tab and no
         # second press.
@@ -534,11 +552,19 @@ async def fill_async(
             # What the human corrected on earlier forms goes over Jobright's
             # values by exact label; the store is empty when nothing was.
             # Only while the auto-learn switch on the page is on.
-            corrections = (forms.load_corrections()
-                           if os.environ.get(CORRECTIONS_ENV, "1") != "0" and settings.auto_learn() else None)
+            fill_known = fill_mode == JOBRIGHT_CHECK_MODE
+            if fill_known:
+                corrections = forms.load() or forms.load_corrections()
+            else:
+                corrections = (forms.load_corrections()
+                               if os.environ.get(CORRECTIONS_ENV, "1") != "0"
+                               and settings.auto_learn() else None)
             try:
+                check_options = {"fill_known": True} if fill_known else {}
                 docs = await forms.upload_documents(cdp_url, pressed.target_id, adapter or forms.Adapter(),
-                                                    resume_pdf, cover_letter_pdf, answerer, corrections)
+                                                    resume_pdf, cover_letter_pdf,
+                                                    None if deterministic_mode else answerer,
+                                                    corrections, **check_options)
             except Exception as error:  # noqa: BLE001 - the agent is the fallback
                 docs = forms.Report(note=f"failed: {error}")
             filled.resume_uploaded = docs.resume_uploaded

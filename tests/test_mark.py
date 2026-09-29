@@ -42,6 +42,8 @@ def test_preamble_gains_only_the_additions():
     new = doc("{\\normalsize two}")
     out = mark.mark(old, new, "changes")
     assert out.startswith("\\documentclass{article}\n" + mark.PREAMBLE + "\\begin{document}\n")
+    assert "\\usepackage{xcolor}\n" in mark.PREAMBLE
+    assert mark.PREAMBLE.index("\\usepackage{xcolor}") < mark.PREAMBLE.index("\\definecolor")
     assert "{\\normalsize {\\color{tailoradd}two}}" in out
 
 

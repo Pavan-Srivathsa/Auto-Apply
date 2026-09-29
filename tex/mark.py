@@ -24,6 +24,7 @@ import re
 MODES = ("changes", "both")
 
 PREAMBLE = (
+    "\\usepackage{xcolor}\n"
     "\\usepackage[normalem]{ulem}\n"
     "\\definecolor{tailoradd}{rgb}{0,0.55,0.15}\n"
     "\\definecolor{tailordel}{rgb}{0.8,0.1,0.1}\n"
