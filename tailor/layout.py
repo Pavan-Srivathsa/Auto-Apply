@@ -123,9 +123,13 @@ def chars_per_line(pdf_path: Optional[Path] = None) -> int:
         return int(override)
     pdf_path = pdf_path or BASE_PDF
     stamp = str(pdf_path.stat().st_mtime_ns) if pdf_path.exists() else ""
+    key = str(pdf_path.resolve())
+    cached_all = {}
     if CACHE.exists():
         try:
-            cached = json.loads(CACHE.read_text())
+            cached_all = json.loads(CACHE.read_text())
+            entries = cached_all.get("entries", {})
+            cached = entries.get(key, cached_all)
             if cached.get("stamp") == stamp and cached.get("chars_per_line"):
                 return int(cached["chars_per_line"])
         except (json.JSONDecodeError, ValueError):
@@ -134,7 +138,9 @@ def chars_per_line(pdf_path: Optional[Path] = None) -> int:
     width = width or DEFAULT_CHARS_PER_LINE
     try:
         CACHE.parent.mkdir(parents=True, exist_ok=True)
-        CACHE.write_text(json.dumps({"stamp": stamp, "chars_per_line": width}) + "\n")
+        entries = cached_all.get("entries", {}) if isinstance(cached_all, dict) else {}
+        entries[key] = {"stamp": stamp, "chars_per_line": width}
+        CACHE.write_text(json.dumps({"entries": entries}, indent=2) + "\n")
     except OSError:
         pass
     return width

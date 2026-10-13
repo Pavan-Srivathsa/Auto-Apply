@@ -18,8 +18,11 @@ from __future__ import annotations
 
 import os
 import re
-import time
+import shutil
+import tempfile
 import urllib.request
+from pathlib import Path
+from typing import Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -28,7 +31,7 @@ from pydantic import BaseModel
 
 import paths
 from browser import chrome
-from tailor import prompts, tailor, workshop
+from tailor import prompts, resume_bases, tailor, workshop
 from tex import compile as texc
 
 from . import queue, settings
@@ -72,6 +75,13 @@ class OpenRequest(BaseModel):
 class ResumeUpload(BaseModel):
     name: str
     text: str
+    base_id: Optional[str] = None
+    label: str = ""
+    description: str = ""
+
+
+class ResumeActive(BaseModel):
+    active: bool
 
 
 # A resume is a few kilobytes of LaTeX; anything near this is not one.
@@ -179,16 +189,30 @@ def onboarded() -> bool:
 @router.get("/setup")
 def setup_status() -> dict:
     """What onboarding and the setup bar list. Each item is done or not."""
-    resume = paths.BASE / "resume.tex"
-    problems = tailor.master_problems(resume.read_text(errors="replace")) if resume.exists() else []
+    bases = resume_bases.all_bases()
+    rows = []
+    all_problems = []
+    for base in bases:
+        problems = tailor.master_problems(
+            base.tex_path.read_text(errors="replace")
+        ) if base.tex_path.exists() else ["resume.tex is missing"]
+        all_problems.extend(f"{base.label}: {problem}" for problem in problems)
+        rows.append(base.public() | {
+            "primary": bool(bases) and base.id == resume_bases.primary_id(),
+            "problems": problems,
+            "ready": base.active and base.pdf_path.exists() and not problems,
+        })
+    ready = [row for row in rows if row["ready"]]
     return {
         "home": str(paths.HOME),
         "onboarded": onboarded(),
         "key": key_is_set(),
         "jobright": jobright_installed(),
-        "resume": resume.exists() and not problems,
-        "resume_problems": problems,
-        "resume_path": str(resume),
+        "resume": bool(ready),
+        "resume_problems": all_problems,
+        "resume_path": str(paths.BASE / "resume.tex"),
+        "resumes": rows,
+        "primary_resume": resume_bases.primary_id() if bases else None,
         "chrome": chrome.find_browser() is not None,
     }
 
@@ -247,13 +271,11 @@ def resume_template() -> FileResponse:
 
 @router.post("/setup/resume")
 def upload_resume(body: ResumeUpload) -> dict:
-    """The master resume, as the person's own LaTeX source.
+    """Add or replace one master resume, in the person's own LaTeX design.
 
     LaTeX only, on purpose: the tailor edits the source and every word of
-    it is the person's, so nothing is lost or guessed in a conversion from
-    a PDF or a Word file. The file is kept even when its layout is not the
-    template's (Claude Code can move its content across, LaTeX to LaTeX);
-    the reply says whether it can be tailored and whether it compiled.
+    it is the person's. It must compile and expose a readable experience
+    section before it enters the active resume registry.
     """
     text = body.text
     if not body.name.lower().endswith(".tex"):
@@ -262,20 +284,74 @@ def upload_resume(body: ResumeUpload) -> dict:
     if len(text) > RESUME_MAX or "\\documentclass" not in text or "\\begin{document}" not in text:
         raise HTTPException(400, "That is not a whole LaTeX document (no \\documentclass or "
                                  "\\begin{document}).")
-    target = paths.BASE / "resume.tex"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        # The one it replaces is kept beside it, never lost to a click.
-        target.rename(target.with_name(f"resume.{time.strftime('%Y%m%d-%H%M%S')}.tex"))
-    target.write_text(text)
-    compiled, error = True, ""
+    problems = tailor.master_problems(text)
+    if problems:
+        raise HTTPException(422, "; ".join(problems))
+    bases = resume_bases.all_bases()
+    base_id = body.base_id
+    if base_id is None and len(bases) == 1 and not body.label.strip():
+        base_id = bases[0].id
+    existing = None
+    if base_id:
+        try:
+            existing = resume_bases.get(base_id)
+        except KeyError:
+            raise HTTPException(404, f"no resume base called {base_id!r}") from None
+    label = body.label.strip() or (existing.label if existing else Path(body.name).stem)
+    description = body.description.strip() or (existing.description if existing else "")
     try:
-        texc.compile_pdf(target, paths.BASE / "resume.pdf")
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            source = work / "resume.tex"
+            source.write_text(text)
+            assets = existing.directory if existing else paths.BASE
+            if assets.exists():
+                for sibling in assets.iterdir():
+                    if sibling.is_file() and sibling.suffix in (".cls", ".sty"):
+                        shutil.copy2(sibling, work / sibling.name)
+            pdf = texc.compile_pdf(source, work / "resume.pdf")
+            row = resume_bases.save_base(base_id, label, description, text, pdf)
+            if assets.exists() and assets != row.directory:
+                for sibling in assets.iterdir():
+                    if sibling.is_file() and sibling.suffix in (".cls", ".sty"):
+                        shutil.copy2(sibling, row.directory / sibling.name)
     except texc.CompileError as exc:
-        compiled, error = False, str(exc)
+        raise HTTPException(422, str(exc)) from None
     except Exception as exc:  # noqa: BLE001 - a timeout or a missing engine, said on the page
-        compiled, error = False, f"{type(exc).__name__}: {exc}"
-    return setup_status() | {"compiled": compiled, "compile_error": error}
+        raise HTTPException(422, f"{type(exc).__name__}: {exc}") from None
+    return setup_status() | {"compiled": True, "resume_base": row.public()}
+
+
+@router.get("/setup/resume/{base_id}/pdf")
+def resume_base_pdf(base_id: str) -> FileResponse:
+    try:
+        base = resume_bases.get(base_id)
+    except KeyError:
+        raise HTTPException(404, f"no resume base called {base_id!r}") from None
+    if not base.pdf_path.exists():
+        raise HTTPException(404, "this resume has no compiled PDF")
+    return FileResponse(base.pdf_path, media_type="application/pdf",
+                        filename=f"{base.id}.pdf", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/setup/resume/{base_id}/primary")
+def primary_resume(base_id: str) -> dict:
+    try:
+        resume_bases.set_primary(base_id)
+    except KeyError:
+        raise HTTPException(404, f"no active resume called {base_id!r}") from None
+    return setup_status()
+
+
+@router.post("/setup/resume/{base_id}/active")
+def active_resume(base_id: str, body: ResumeActive) -> dict:
+    try:
+        resume_bases.set_active(base_id, body.active)
+    except KeyError:
+        raise HTTPException(404, f"no resume called {base_id!r}") from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return setup_status()
 
 
 @router.post("/setup/done")

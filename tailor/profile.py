@@ -26,7 +26,7 @@ from typing import Optional
 import paths
 from server import settings
 
-from . import llm, prompts
+from . import llm, prompts, resume_bases
 
 ROOT = Path(__file__).resolve().parent.parent
 PROFILE = paths.BASE / "profile.md"
@@ -194,19 +194,30 @@ def derived_facts(resume_path: Optional[Path] = None, cache: Optional[Path] = No
 
     A model call per page open would make the banner slow and cost money for
     the same answer every time, so the derivation runs once and the cache
-    carries the resume's mtime in its first line.
+    carries a hash of every active resume in its first line.
     """
-    resume_path = resume_path or BASE_RESUME
     cache = cache or DERIVED_FACTS
-    if not resume_path.exists():
-        raise FileNotFoundError(f"{resume_path} is missing; nothing to derive facts from")
-    stamp = f"<!-- resume mtime {int(resume_path.stat().st_mtime)} -->"
+    if resume_path is not None:
+        resume_paths = [resume_path]
+    elif resume_bases.REGISTRY.exists():
+        resume_paths = [base.tex_path for base in resume_bases.all_bases(active_only=True)]
+    else:
+        # Backward compatibility for a pre-registry install and tests that
+        # point BASE_RESUME at a temporary master.
+        resume_paths = [BASE_RESUME]
+    missing = [path for path in resume_paths if not path.exists()]
+    if missing or not resume_paths:
+        name = missing[0] if missing else BASE_RESUME
+        raise FileNotFoundError(f"{name} is missing; nothing to derive facts from")
+    source = "\n\n".join(path.read_text() for path in resume_paths)
+    import hashlib
+    stamp = f"<!-- resume set {hashlib.sha256(source.encode()).hexdigest()[:20]} -->"
     if cache.exists():
         cached = cache.read_text()
         if cached.startswith(stamp):
             return cached.split("\n", 1)[1].strip()
     reply = llm.complete(
-        prompts.text("profile.derive"), resume_path.read_text(), model=model or derive_model(),
+        prompts.text("profile.derive"), source, model=model or derive_model(),
         temperature=0.0, max_tokens=2000, reasoning={"enabled": False},
     )
     facts = "\n".join(line for line in reply.splitlines() if line.startswith("- ")).strip()

@@ -133,7 +133,8 @@ def _extract_block(text: str, languages: tuple[str, ...]) -> Optional[str]:
 
 def rewrite_selection(posting: Posting, resume_tex: str, selected: str,
                       instruction: str, profile: str = "",
-                      model: Optional[str] = None) -> str:
+                      model: Optional[str] = None,
+                      master_tex: Optional[str] = None) -> str:
     """Rewrite one highlighted LaTeX passage, returning its replacement only."""
     selected = selected.strip()
     instruction = instruction.strip()
@@ -141,7 +142,7 @@ def rewrite_selection(posting: Posting, resume_tex: str, selected: str,
         raise TailorError("highlight some resume text first")
     if not instruction:
         raise TailorError("say how the highlighted resume text should change")
-    master = load_base_resume()
+    master = master_tex if master_tex is not None else load_base_resume()
     user = (
         f"## Reviewer instruction\n\n{instruction}\n\n"
         f"## Highlighted LaTeX passage\n\n```tex\n{selected}\n```\n\n"
@@ -269,9 +270,9 @@ def bullet_lengths(tex: str) -> list[int]:
     return [len(_normalise(body)) for body in bullets(tex)]
 
 
-def bullet_budgets(tex: str) -> list[tuple[int, int, int]]:
+def bullet_budgets(tex: str, width: Optional[int] = None) -> list[tuple[int, int, int]]:
     """Per bullet: (printed lines, characters that fit, characters used)."""
-    width = layout.chars_per_line()
+    width = width or layout.chars_per_line()
     return [layout.budget(body, width) for body in bullets(tex)]
 
 
@@ -319,7 +320,7 @@ def pair_bullets(original: str, tailored: str) -> list[tuple[int, int, int]]:
 BLOCK_SECTIONS = ("PROJECTS",)
 
 
-def _check_lengths(original: str, tailored: str) -> list[str]:
+def _check_lengths(original: str, tailored: str, width: Optional[int] = None) -> list[str]:
     """Nothing may take more printed lines than it does now.
 
     Outside `BLOCK_SECTIONS` that is read per bullet: an EXPERIENCE bullet
@@ -331,7 +332,7 @@ def _check_lengths(original: str, tailored: str) -> list[str]:
     string work. Coming back shorter is a warning: the page still fits, but
     a hole in the layout is worth seeing on the review page.
     """
-    width = layout.chars_per_line()
+    width = width or layout.chars_per_line()
     warnings, grew = [], []
     for index, before, after, section in _paired_bodies(original, tailored):
         if section in BLOCK_SECTIONS:
@@ -457,7 +458,7 @@ def _paired_bodies(original: str, tailored: str) -> list[tuple[int, str, str, st
     return sorted(pairs)
 
 
-def overrun_report(original: str, tailored: str) -> str:
+def overrun_report(original: str, tailored: str, width: Optional[int] = None) -> str:
     """Name the bullets that overflowed, worst first, in lines and in the
     characters that would fit.
 
@@ -465,7 +466,7 @@ def overrun_report(original: str, tailored: str) -> str:
     bullets to cut, and it usually guesses wrong. Handing it the arithmetic
     turns the retry into an edit rather than another attempt.
     """
-    width = layout.chars_per_line()
+    width = width or layout.chars_per_line()
     try:
         pairs = _paired_bodies(original, tailored)
     except TailorError:
@@ -689,7 +690,8 @@ def _check_links(original: str, tailored: str, profile: str) -> None:
                           f"resume nor a story's Link line: {', '.join(sorted(set(strange)))}")
 
 
-def _validate(original: str, tailored: str, profile: str = "", posting: str = "") -> list[str]:
+def _validate(original: str, tailored: str, profile: str = "", posting: str = "",
+              width: Optional[int] = None) -> list[str]:
     """Structural checks, cheapest first. Returns non-fatal warnings."""
     if not tailored.strip():
         raise TailorError("model returned an empty resume")
@@ -702,7 +704,7 @@ def _validate(original: str, tailored: str, profile: str = "", posting: str = ""
     _check_links(original, tailored, profile)
     # Lengths first: that is the check that protects the page, and a bullet
     # that overflowed is a more specific thing to be told than a figure in it.
-    warnings = _check_lengths(original, tailored)
+    warnings = _check_lengths(original, tailored, width)
     _check_invented(original, tailored, profile, posting)
     return warnings
 
@@ -720,11 +722,12 @@ def load_profile(path: Optional[Path] = None, stories: Optional[list[str]] = Non
     return profile_module.context(profile_module.load_profile(path or PROFILE), slugs=stories)
 
 
-def _build_user_message(posting: Posting, resume: str, profile: str) -> str:
-    width = layout.chars_per_line()
+def _build_user_message(posting: Posting, resume: str, profile: str,
+                        width: Optional[int] = None) -> str:
+    width = width or layout.chars_per_line()
     rows = [
         (f"bullet {i}", lines, cap, used)
-        for i, (lines, cap, used) in enumerate(bullet_budgets(resume), 1)
+        for i, (lines, cap, used) in enumerate(bullet_budgets(resume, width), 1)
     ]
     # The summary and each skills line are held to their printed lines the
     # same way (`_check_single_items`), and used not to be listed here: a
@@ -791,6 +794,7 @@ def tailor(
     extra_instruction: str = "",
     profile: Optional[str] = None,
     model: Optional[str] = None,
+    layout_pdf: Optional[Path] = None,
 ) -> TailorResult:
     """Tailor the resume, retrying while it does not fit on `target_pages`.
 
@@ -804,8 +808,9 @@ def tailor(
     # A job captured with "Use Opus" carries its own model; everything else
     # runs on the cheap default.
     model = model or llm.tailor_model()
+    width = layout.chars_per_line(layout_pdf)
 
-    message = _build_user_message(posting, original, profile)
+    message = _build_user_message(posting, original, profile, width)
     if extra_instruction.strip():
         # The reviewer's words carry more weight than the model's own earlier
         # judgement, but not more than the rules: they are appended to the
@@ -864,7 +869,7 @@ def tailor(
                 continue
 
         try:
-            warnings = _validate(original, tailored, profile, posting.text)
+            warnings = _validate(original, tailored, profile, posting.text, width)
         except TailorError as exc:
             last_error = str(exc)
             rejected.append({"attempt": attempt, "reason": last_error, "tex": tailored})
@@ -903,7 +908,7 @@ def tailor(
                 rejected.append({"attempt": attempt, "reason": last_error, "tex": tailored})
                 feedback = (
                     f"\n\n## Your previous attempt was rejected\n\n"
-                    f"It {last_error}.\n\n{overrun_report(original, tailored)}\n\n"
+                    f"It {last_error}.\n\n{overrun_report(original, tailored, width)}\n\n"
                     "Return the whole file again with those bullets cut back inside "
                     "their line budgets. Keep every other edit you made; do not revert "
                     "to the master resume. Do not delete a bullet, do not remove a "

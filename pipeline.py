@@ -25,23 +25,24 @@ from browser import autofill, chrome
 from server import postings, queue, runner, seen, settings
 from server import screen as screen_server
 from server.models import Job, Status
-from tailor import cover, fetch, profile, quality, tailor
+from tailor import cover, fetch, layout, profile, quality, resume_bases, tailor
 from tex import compile as texc
 from tex import mark
 
 ROOT = Path(__file__).resolve().parent
 
 
-def base_page_count() -> int:
+def base_page_count(base_tex: Optional[Path] = None,
+                    base_pdf: Optional[Path] = None) -> int:
     """Page count of the master resume, which the tailored one must match.
 
     Falls back to 1, since a one-page resume is the assumption this project is
     built around.
     """
-    base_pdf = paths.BASE / "resume.pdf"
+    base_tex = base_tex or paths.BASE / "resume.tex"
+    base_pdf = base_pdf or base_tex.with_suffix(".pdf")
     if base_pdf.exists():
         return texc.page_count(base_pdf) or 1
-    base_tex = paths.BASE / "resume.tex"
     if not base_tex.exists():
         return 1
     with tempfile.TemporaryDirectory() as tmp:
@@ -194,17 +195,31 @@ def allocate(job: Job) -> Path:
 
 
 def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
-                 extra_instruction: str = "", model: Optional[str] = None):
+                 extra_instruction: str = "", model: Optional[str] = None,
+                 base: Optional[resume_bases.ResumeBase] = None,
+                 choice: Optional[resume_bases.Choice] = None):
     """Tailor and compile only the resume, returning its result and status note."""
-    base_tex = paths.BASE / "resume.tex"
-    target = base_page_count()
+    base = base or resume_bases.get()
+    base_tex = base.tex_path
+    master = base_tex.read_text()
+    target = base_page_count(base_tex, base.pdf_path)
+    choice = choice or resume_bases.Choice(
+        base.id, "sticky", "high", "Kept this job's selected resume.",
+    )
+    store.write(app_dir, "resume_base.json", json.dumps(choice.to_dict(), indent=2) + "\n")
+    store.write(app_dir, "master_resume.tex", master)
+    if base.pdf_path.exists():
+        store.write(app_dir, "master_resume.pdf", base.pdf_path.read_bytes())
+    resume_bases.copy_assets(base, app_dir)
     result = tailor.tailor(
         posting,
+        resume_tex=master,
         page_check=make_page_check(base_tex),
         target_pages=target,
         extra_instruction=extra_instruction,
         profile=tailor.load_profile(stories=stories),
         model=model,
+        layout_pdf=base.pdf_path,
     )
     store.write(app_dir, "resume.tex", result.tex)
     store.write(app_dir, "resume.diff", result.diff or "(no changes)\n")
@@ -213,6 +228,8 @@ def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
         "suggestions.md",
         f"# Tailoring rationale\n\n_Model: {result.model} "
         f"(attempt {result.attempts})_\n\n"
+        f"**Resume base:** {base.label} ({choice.source}, {choice.confidence}) — "
+        f"{choice.reason}\n\n"
         + (f"**Fit:** {result.verdict}\n\n" if result.verdict else "")
         + (
             "**Length warnings:** " + "; ".join(result.warnings) + "\n\n"
@@ -230,7 +247,7 @@ def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
 
     pdf = texc.compile_pdf(app_dir / "resume.tex", app_dir / "resume.pdf")
     pages = texc.page_count(pdf)
-    write_marked(app_dir, base_tex.read_text(), result.tex)
+    write_marked(app_dir, master, result.tex)
     note = f"{pages} page(s)"
     if pages is not None and pages != target:
         note += f" — master is {target}; the page-count gate did not hold"
@@ -285,6 +302,28 @@ def process(job: Job, extra_instruction: str = "", keep_status: bool = False) ->
     if (title, company) != (job.title, job.company):
         job = queue.update(job.id, title=title, company=company) or job
 
+    if job.resume_base:
+        try:
+            base = resume_bases.get(job.resume_base)
+            choice = resume_bases.Choice(
+                base.id, job.resume_base_source or "sticky",
+                job.resume_base_confidence or "high",
+                job.resume_base_reason or "Kept this job's selected resume.",
+            )
+        except KeyError:
+            choice = resume_bases.choose(posting)
+            base = resume_bases.get(choice.base)
+    else:
+        choice = resume_bases.choose(posting)
+        base = resume_bases.get(choice.base)
+    job = queue.update(
+        job.id,
+        resume_base=choice.base,
+        resume_base_source=choice.source,
+        resume_base_confidence=choice.confidence,
+        resume_base_reason=choice.reason,
+    ) or job
+
     app_dir = allocate(job)
     store.write(app_dir, "posting.md", posting.to_markdown())
     write_screen(app_dir, job, posting)
@@ -293,6 +332,7 @@ def process(job: Job, extra_instruction: str = "", keep_status: bool = False) ->
     try:
         result, note = write_resume(
             app_dir, posting, stories, extra_instruction, model=job.tailor_model,
+            base=base, choice=choice,
         )
     except tailor.Mismatch as exc:
         # A poor-fit verdict is advice, not a decision. The job still stops at
@@ -464,6 +504,37 @@ def _carry(source: Path, destination: Path, names: list[str]) -> None:
             store.write(destination, name, path.read_bytes())
 
 
+def _carry_assets(source: Path, destination: Path) -> None:
+    for path in source.iterdir():
+        if path.is_file() and path.suffix in (".cls", ".sty"):
+            store.write(destination, path.name, path.read_bytes())
+
+
+def _archived_base(source: Path, job: Job) -> tuple[resume_bases.ResumeBase, resume_bases.Choice]:
+    value = {}
+    path = source / "resume_base.json"
+    if path.exists():
+        try:
+            value = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            value = {}
+    base_id = str(value.get("base") or job.resume_base or resume_bases.primary_id())
+    try:
+        base = resume_bases.get(base_id)
+    except KeyError:
+        base = resume_bases.get()
+    choice = resume_bases.Choice(
+        base.id,
+        str(value.get("source") or job.resume_base_source or "sticky"),
+        str(value.get("confidence") or job.resume_base_confidence or "high"),
+        str(value.get("reason") or job.resume_base_reason
+            or "Kept this job's selected resume."),
+        str(value.get("model") or ""),
+        bool(value.get("cached", False)),
+    )
+    return base, choice
+
+
 def regenerate(job: Job, instruction: str, target: str) -> Path:
     """Regenerate one document while carrying the other into a new version.
 
@@ -482,15 +553,19 @@ def regenerate(job: Job, instruction: str, target: str) -> Path:
 
     posting = _archived_posting(source, current)
     stories = profile.read_used(source)
+    base, choice = _archived_base(source, current)
     app_dir = store.create(current)
     store.set_status(app_dir, Status.TAILORING, f"regenerating {target}")
     _carry(source, app_dir, ["posting.md", "screen.json", "screen_error.txt"])
+    resume_bases.copy_assets(base, app_dir)
+    _carry_assets(source, app_dir)
     store.write(app_dir, "stories_used.txt", "\n".join(stories) + ("\n" if stories else ""))
 
     try:
         if target == "resume":
             _, note = write_resume(
                 app_dir, posting, stories, instruction, model=current.tailor_model,
+                base=base, choice=choice,
             )
             _carry(source, app_dir, [
                 "cover_letter.md", "cover_letter.tex", "cover_letter.pdf",
@@ -501,6 +576,7 @@ def regenerate(job: Job, instruction: str, target: str) -> Path:
                 "resume.tex", "resume.pdf", "resume.diff", "suggestions.md",
                 "resume_changes.tex", "resume_changes.pdf",
                 "resume_both.tex", "resume_both.pdf", "mismatch.md",
+                "resume_base.json", "master_resume.tex", "master_resume.pdf",
             ])
             resume_tex = (source / "resume.tex").read_text()
             note = write_cover_letter(
@@ -532,12 +608,16 @@ def save_cover(job: Job, text: str) -> Path:
         raise FileNotFoundError(f"application folder {source.name} is gone")
 
     stories = profile.read_used(source)
+    base, _ = _archived_base(source, current)
     app_dir = store.create(current)
     store.set_status(app_dir, Status.TAILORING, "saving edited cover letter")
+    resume_bases.copy_assets(base, app_dir)
+    _carry_assets(source, app_dir)
     _carry(source, app_dir, [
         "posting.md", "screen.json", "screen_error.txt", "resume.tex", "resume.pdf",
         "resume.diff", "suggestions.md", "resume_changes.tex", "resume_changes.pdf",
         "resume_both.tex", "resume_both.pdf", "mismatch.md",
+        "resume_base.json", "master_resume.tex", "master_resume.pdf",
     ])
     store.write(app_dir, "stories_used.txt", "\n".join(stories) + ("\n" if stories else ""))
     try:
@@ -562,18 +642,24 @@ def save_resume(job: Job, tex: str) -> Path:
     if not source.exists():
         raise FileNotFoundError(f"application folder {source.name} is gone")
 
-    master_path = paths.BASE / "resume.tex"
-    master = master_path.read_text()
+    base, _ = _archived_base(source, current)
+    master_path = source / "master_resume.tex"
+    master = master_path.read_text() if master_path.exists() else base.tex_path.read_text()
+    master_pdf = source / "master_resume.pdf"
+    width = layout.chars_per_line(master_pdf if master_pdf.exists() else base.pdf_path)
     posting = _archived_posting(source, current)
     stories = profile.read_used(source)
     profile_text = tailor.load_profile(stories=stories)
-    warnings = tailor._validate(master, tex, profile_text, posting.text)
+    warnings = tailor._validate(master, tex, profile_text, posting.text, width)
 
     app_dir = store.create(current)
     store.set_status(app_dir, Status.TAILORING, "saving edited resume")
+    resume_bases.copy_assets(base, app_dir)
+    _carry_assets(source, app_dir)
     _carry(source, app_dir, [
         "posting.md", "screen.json", "screen_error.txt", "cover_letter.md",
         "cover_letter.tex", "cover_letter.pdf", "cover_letter_error.txt",
+        "resume_base.json", "master_resume.tex", "master_resume.pdf",
     ])
     store.write(app_dir, "stories_used.txt", "\n".join(stories) + ("\n" if stories else ""))
     try:
@@ -588,7 +674,10 @@ def save_resume(job: Job, tex: str) -> Path:
         )
         pdf = texc.compile_pdf(app_dir / "resume.tex", app_dir / "resume.pdf")
         pages = texc.page_count(pdf)
-        target = base_page_count()
+        target = base_page_count(
+            master_path if master_path.exists() else base.tex_path,
+            master_pdf if master_pdf.exists() else base.pdf_path,
+        )
         if pages is None:
             raise tailor.TailorError("could not verify the edited resume's page count")
         if pages != target:

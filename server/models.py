@@ -94,6 +94,13 @@ class Job(BaseModel):
     # resolved name is stored rather than a flag, so the row says what the
     # documents were actually written with even after the setting changes.
     tailor_model: Optional[str] = None
+    # The master resume selected for this posting. None means the router has
+    # not decided yet. Once resolved it stays on the row so every re-tailor,
+    # edit and fill uses the same source unless the human overrides it.
+    resume_base: Optional[str] = None
+    resume_base_source: Optional[str] = None
+    resume_base_confidence: Optional[str] = None
+    resume_base_reason: Optional[str] = None
 
     @property
     def id(self) -> str:

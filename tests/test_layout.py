@@ -1,5 +1,7 @@
 """The line budget: what a printed line holds, and how many a bullet takes."""
 
+import pytest
+
 from tailor import layout
 
 BULLET = (r"\normalsize{\href{https://github.com/me/hydra}{\textbf{\color{blue}"
@@ -24,6 +26,22 @@ def test_a_line_is_measured_off_the_compiled_master(tmp_path, monkeypatch):
     monkeypatch.setattr(layout, "_measure", lambda path: 1)
     assert layout.chars_per_line(pdf) == 98
     assert layout.chars_per_line(tmp_path / "missing.pdf") == layout.DEFAULT_CHARS_PER_LINE
+
+
+def test_line_width_cache_is_separate_for_each_resume_format(tmp_path, monkeypatch):
+    monkeypatch.setattr(layout, "CACHE", tmp_path / "line_width.json")
+    first = tmp_path / "compact.pdf"
+    second = tmp_path / "wide.pdf"
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+    widths = {first: 82, second: 117}
+    monkeypatch.setattr(layout, "_measure", lambda path: widths[path])
+
+    assert layout.chars_per_line(first) == 82
+    assert layout.chars_per_line(second) == 117
+    monkeypatch.setattr(layout, "_measure", lambda path: pytest.fail("must read each cached width"))
+    assert layout.chars_per_line(first) == 82
+    assert layout.chars_per_line(second) == 117
 
 
 def test_the_budget_is_lines_and_the_characters_that_fit(monkeypatch):

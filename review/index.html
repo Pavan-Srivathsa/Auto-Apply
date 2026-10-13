@@ -413,6 +413,15 @@
   .setupbar .keyrow input { flex: 1; padding: .45rem; border: 2px solid var(--line); background: var(--bg);
                             color: inherit; font: inherit; }
   .setupbar a { color: inherit; }
+  .resume-manager { padding: .9rem 1rem; }
+  .resume-manager input[type=text], .resume-manager textarea, .resume-manager select {
+    width: 100%; box-sizing: border-box; padding: .55rem; border: 2px solid var(--line);
+    background: var(--bg); color: inherit; font: inherit;
+  }
+  .resume-manager iframe { height: 68vh; margin-top: .7rem; }
+  .resume-route { display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; }
+  .resume-route select { max-width: 20rem; padding: .45rem; border: 2px solid var(--line);
+                         background: var(--panel); color: inherit; font: inherit; }
   textarea.promptedit { width: 100%; min-height: 60vh; font: 12px/1.5 "JetBrains Mono", ui-monospace, monospace;
                         white-space: pre; overflow-wrap: normal; overflow-x: auto; tab-size: 2; }
   .proposal { border: 2px solid var(--line); padding: .7rem .9rem; margin: .8rem 0; }
@@ -451,6 +460,7 @@
     <button id="tabJobs" aria-current="true">Jobs</button>
     <button id="tabProfile" aria-current="false">Profile</button>
     <button id="tabProjects" aria-current="false">Projects</button>
+    <button id="tabResumes" aria-current="false">Resumes</button>
     <button id="tabScout" aria-current="false">Scout<span class="broken" id="scoutBroken" hidden style="margin-left:.5rem">Broken</span></button>
     <button id="tabPrompts" aria-current="false">Prompts</button>
   </div>
@@ -581,18 +591,21 @@ function switchView(name) {
   $("tabJobs").setAttribute("aria-current", name === "jobs");
   $("tabProfile").setAttribute("aria-current", name === "profile");
   $("tabProjects").setAttribute("aria-current", name === "projects");
+  $("tabResumes").setAttribute("aria-current", name === "resumes");
   $("tabScout").setAttribute("aria-current", name === "scout");
   $("tabPrompts").setAttribute("aria-current", name === "prompts");
   if (name !== "profile") { Profile.leave(); $("detail").classList.remove("chatpane"); }
   if (name === "jobs") loadList();
   else if (name === "profile") Profile.open();
   else if (name === "scout") Scout.open();
+  else if (name === "resumes") Resumes.open();
   else if (name === "prompts") Prompts.open();
   else Projects.open();
 }
 $("tabJobs").onclick = () => switchView("jobs");
 $("tabProfile").onclick = () => switchView("profile");
 $("tabProjects").onclick = () => switchView("projects");
+$("tabResumes").onclick = () => switchView("resumes");
 $("tabScout").onclick = () => switchView("scout");
 $("tabPrompts").onclick = () => switchView("prompts");
 
@@ -757,6 +770,19 @@ async function show(id) {
           <iframe id="resumeView" src="/review/${id}/file/resume.pdf${stamp}#toolbar=0&navpanes=0&view=Fit" title="Tailored resume"></iframe>
           ${resumeEditor}
         </div></div>` : "";
+  const selectedBase = data.resume_base?.base || "";
+  const resumeRoute = data.resume_bases?.length ? `
+    <div class="card resume-manager">
+      <div class="resume-route">
+        <strong>Starting resume</strong>
+        <select id="jobResumeBase">${data.resume_bases.map((row) =>
+          `<option value="${escape(row.id)}" ${row.id === selectedBase ? "selected" : ""}
+             ${row.active === false ? "disabled" : ""}>${escape(row.label)}${row.active === false ? " · archived" : ""}</option>`
+        ).join("")}</select>
+        <button class="act" id="jobResumeChange" disabled>Re-tailor from this resume</button>
+        <span class="hint" id="jobResumeNote">${escape(data.resume_base?.reason || "")}</span>
+      </div>
+    </div>` : "";
   const coverEditor = data.cover_letter ? `
     <div class="cover-edit">
       <strong>Edit cover letter</strong>
@@ -819,6 +845,7 @@ async function show(id) {
         <button class="act" id="reveal">Show the files in Finder</button>
         <span class="hint" id="revealNote">The resume and the letter under their upload names, selected, ready to drag onto a form.</span>
       </div>
+      ${resumeRoute}
       <div class="docs">${resumeDoc}${letterDoc}</div>` : ""}
 
     ${data.suggestions ? `<h3>What changed, and why</h3>
@@ -927,6 +954,19 @@ async function show(id) {
   if ($("fillAutopilot")) $("fillAutopilot").onclick = () => fillAgain(id, "autopilot");
   if ($("fillJobright")) $("fillJobright").onclick = () => fillAgain(id, "jobright_check");
   if ($("reveal")) wireReveal(id);
+  if ($("jobResumeBase")) {
+    const select = $("jobResumeBase"), button = $("jobResumeChange"), note = $("jobResumeNote");
+    select.onchange = () => { button.disabled = select.value === selectedBase; };
+    button.onclick = async () => {
+      button.disabled = true; note.textContent = "Re-tailoring both documents from this resume…";
+      try {
+        await api(`/review/${id}/resume-base`, {
+          method: "POST", body: JSON.stringify({ base: select.value }),
+        });
+        setTimeout(() => { if (current === id) show(id); }, 800);
+      } catch (err) { note.textContent = err.message; button.disabled = false; }
+    };
+  }
   if ($("askGo")) wireThread(id, data);
   if ($("resumeEditText")) wireResumeEditor(id, data);
   if ($("coverEditText")) wireCoverEditor(id, data);
@@ -1494,6 +1534,7 @@ function pollNow() {
   if (view === "jobs") { loadList(); loadProfileStat(); }
   else if (view === "profile") Profile.poll();
   else if (view === "scout") Scout.poll();
+  else if (view === "resumes") Resumes.poll();
   else if (view === "prompts") Prompts.poll();
   else Projects.poll();
   loadScoutBroken();
@@ -1961,6 +2002,131 @@ A project can carry several links — the repository, a store
   return { open, poll };
 })();
 
+// ------------------------------------------------------------- Resumes --
+// Any number of independently formatted master resumes. Each is compiled
+// and profiled once; a job routes to one of them before the normal tailor
+// runs. Archiving removes a resume from new routing without deleting it.
+const Resumes = (() => {
+  let state = null;
+  let viewing = "add";
+  let busy = false;
+
+  async function refresh() {
+    state = await api("/setup");
+    if (viewing !== "add" && !(state.resumes || []).some((row) => row.id === viewing)) {
+      viewing = "add";
+    }
+  }
+
+  async function open() {
+    await refresh();
+    render();
+  }
+
+  async function poll() {
+    if (busy || view !== "resumes") return;
+    await refresh();
+    renderNav();
+  }
+
+  function renderNav() {
+    const rows = state?.resumes || [];
+    $("count").textContent = `${rows.filter((row) => row.active).length} active resumes`;
+    $("list").innerHTML = `<button class="row" data-resume="add" data-tone="agent" aria-current="${viewing === "add"}">
+        <span class="role">Add resume</span><span class="cov">LaTeX source</span></button>` +
+      rows.map((row) => `<button class="row" data-resume="${escape(row.id)}"
+          data-tone="${row.active ? "done" : "stop"}" aria-current="${viewing === row.id}">
+          <span class="role">${escape(row.label)}${row.primary ? " · primary" : ""}</span>
+          <span class="cov">${row.active ? row.ready ? "ready" : "needs attention" : "archived"}</span>
+        </button>`).join("");
+    for (const button of $("list").querySelectorAll("[data-resume]")) {
+      button.onclick = () => { viewing = button.dataset.resume; render(); };
+    }
+  }
+
+  function form(row=null) {
+    return `<div class="card resume-manager">
+      <label>Label</label>
+      <input type="text" id="resumeLabel" value="${escape(row?.label || "")}"
+             placeholder="e.g. ML / AI engineering">
+      <label>When should this resume be used?</label>
+      <textarea id="resumeDescription" rows="3"
+        placeholder="e.g. ML engineering, forecasting, LLM applications, model deployment">${escape(row?.description || "")}</textarea>
+      <div class="actions">
+        <label class="act primary">${row ? "Replace .tex" : "Choose .tex"}
+          <input type="file" id="resumeUpload" accept=".tex" hidden></label>
+        <span class="hint" id="resumeUploadNote">The file is compiled and a compact routing profile is generated once.</span>
+      </div>
+    </div>`;
+  }
+
+  function render() {
+    renderNav();
+    const row = (state?.resumes || []).find((item) => item.id === viewing);
+    if (!row) {
+      $("detail").innerHTML = `<div class="head"><h2>Add a master resume</h2></div>
+        <p class="hint">Each resume keeps its own content and LaTeX design. Autopilot selects one before tailoring.</p>
+        ${form()}`;
+    } else {
+      $("detail").innerHTML = `<div class="head"><h2>${escape(row.label)}</h2>
+          <span class="state ${row.active ? "go" : "stop"}">${row.active ? "active" : "archived"}</span>
+          ${row.primary ? '<span class="state agent">primary fallback</span>' : ""}</div>
+        ${row.summary ? `<div class="card prose"><p>${escape(row.summary)}</p>
+          ${row.target_roles?.length ? `<p><strong>Target roles:</strong> ${row.target_roles.map(escape).join(", ")}</p>` : ""}
+          ${row.strengths?.length ? `<p><strong>Routing evidence:</strong> ${row.strengths.map(escape).join(", ")}</p>` : ""}</div>` : ""}
+        ${row.problems?.length ? `<div class="banner stop">${escape(row.problems.join("; "))}</div>` : ""}
+        <div class="actions">
+          ${!row.primary && row.active ? '<button class="act" id="resumePrimary">Make primary fallback</button>' : ""}
+          <button class="act ${row.active ? "danger" : ""}" id="resumeActive">${row.active ? "Archive" : "Restore"}</button>
+        </div>
+        ${form(row)}
+        ${row.compiled ? `<iframe src="/setup/resume/${encodeURIComponent(row.id)}/pdf?v=${encodeURIComponent(row.version || row.id)}#toolbar=0&view=Fit"
+          title="${escape(row.label)}"></iframe>` : ""}`;
+    }
+    wire(row);
+  }
+
+  function wire(row) {
+    if ($("resumePrimary")) $("resumePrimary").onclick = async () => {
+      await api(`/setup/resume/${encodeURIComponent(row.id)}/primary`, { method: "POST", body: "{}" });
+      await refresh(); render();
+    };
+    if ($("resumeActive")) $("resumeActive").onclick = async () => {
+      const action = row.active ? "archive" : "restore";
+      if (row.active && !confirm(`Archive ${row.label}? Existing jobs keep it; new jobs will not use it.`)) return;
+      try {
+        state = await api(`/setup/resume/${encodeURIComponent(row.id)}/active`, {
+          method: "POST", body: JSON.stringify({ active: !row.active }),
+        });
+        render();
+      } catch (err) { alert(`Could not ${action}: ${err.message}`); }
+    };
+    $("resumeUpload").onchange = async (event) => {
+      const file = event.target.files[0];
+      if (!file || busy) return;
+      const label = $("resumeLabel").value.trim();
+      if (!label) { $("resumeUploadNote").textContent = "Name this resume first."; return; }
+      busy = true;
+      $("resumeUploadNote").textContent = "Compiling and building its routing profile…";
+      try {
+        state = await api("/setup/resume", {
+          method: "POST",
+          body: JSON.stringify({
+            name: file.name, text: await file.text(), base_id: row?.id || null,
+            label, description: $("resumeDescription").value.trim(),
+          }),
+        });
+        viewing = state.resume_base?.id || row?.id || viewing;
+        render();
+      } catch (err) {
+        $("resumeUploadNote").textContent = err.message;
+      } finally { busy = false; }
+    };
+  }
+
+  return { open, poll };
+})();
+
 // ---------------------------------------------------------------- Setup --
 // What is missing before the first job: the OpenRouter key (typed here and
 // checked against OpenRouter, never in a terminal or a chat), the master
@@ -2113,7 +2279,8 @@ const Onboard = (() => {
           <a class="act" href="/setup/template" download>No LaTeX resume? Get a template</a>
         </div>
         <p class="hint" id="obTexMsg">Any LaTeX resume works: Jake's, Awesome-CV, moderncv, your own. No LaTeX resume
-        yet? Take the template, write yours into it (any editor, or Overleaf), and upload it here.</p>
+        yet? Take the template, write yours into it (any editor, or Overleaf), and upload it here. You can add more
+        role-specific formats later from the Resumes tab.</p>
         <div class="actions">${back}<button class="act primary" id="obNext" ${s.resume ? "" : "disabled"}>Next</button>
           <button class="act" id="obLater">Do this later</button></div>`;
     } else {

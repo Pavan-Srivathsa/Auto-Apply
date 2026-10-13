@@ -179,6 +179,42 @@ def test_use_opus_pressed_on_jobrights_page_reaches_the_employer_tabs_capture(la
     assert "6aad9999" not in app_module.PREMIUM_PREFS, "used once; a later capture is not bound by it"
 
 
+def test_manual_resume_choice_travels_with_capture_and_jobright_prefs(
+        launched, tmp_path, monkeypatch):
+    import json
+    from server import app as app_module
+
+    root = tmp_path / "resumes"
+    monkeypatch.setattr(app_module.resume_bases, "ROOT", root)
+    monkeypatch.setattr(app_module.resume_bases, "REGISTRY", tmp_path / "registry.json")
+    monkeypatch.setattr(app_module.resume_bases, "LEGACY_TEX", tmp_path / "legacy.tex")
+    rows = []
+    for base_id in ("swe", "ml", "data"):
+        directory = root / base_id
+        directory.mkdir(parents=True)
+        (directory / "resume.tex").write_text("resume")
+        rows.append({"id": base_id, "label": base_id, "active": True})
+    app_module.resume_bases.REGISTRY.write_text(json.dumps({
+        "primary": "swe", "bases": rows,
+    }))
+    client = TestClient(app)
+
+    direct = client.post("/capture", json={
+        "url": "https://example.com/jobs/base", "resume_base": "ml",
+    }).json()
+    assert queue.get(direct["id"]).resume_base == "ml"
+    assert queue.get(direct["id"]).resume_base_source == "manual"
+
+    assert client.post("/prefs", json={
+        "jr_id": "resume-pref", "resume_base": "data",
+    }).status_code == 200
+    employer = client.post("/capture", json={
+        "url": "https://boards.example.com/apply?jr_id=resume-pref",
+    }).json()
+    assert queue.get(employer["id"]).resume_base == "data"
+    assert "resume-pref" not in app_module.RESUME_BASE_PREFS
+
+
 def test_the_countdown_leaves_room_to_press_use_opus():
     """Both the button and the three seconds are in the banner; two seconds
     was not enough to read the verdict and decide."""
@@ -187,7 +223,9 @@ def test_the_countdown_leaves_room_to_press_use_opus():
     assert 'data-act="opus"' in content
     # Armed, not pressed: the countdown is not cancelled by the choice.
     assert "usePremium = !usePremium;" in content
-    assert "addToQueue(autoFill(), usePremium)" in content
+    assert "addToQueue(autoFill(), usePremium, selectedResumeBase || null)" in content
+    assert 'class="resume"' in content
+    assert 'post("/resume-bases", {})' in content
 
 
 def test_a_job_already_applied_for_shouts_and_the_bar_stays_open():

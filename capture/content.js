@@ -78,6 +78,7 @@ const onJobright = /(^|\.)jobright\.ai$/.test(location.hostname);
 // it does not cut the countdown short — the job goes in as it would have,
 // with the model changed. Per tab, per job; the default is the cheap model.
 let usePremium = false;
+let selectedResumeBase = "";
 
 // A posting already in autopilot (`seen` on the screen reply) is never
 // auto-added again; the bar says where it stands and the button opens it
@@ -411,6 +412,8 @@ function render(result, { pending = false } = {}) {
       .actions { display: flex; gap: 6px; white-space: nowrap; align-items: center; }
       label.approve { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #fff; cursor: pointer; user-select: none; }
       label.approve input { accent-color: ${c.tone}; margin: 0; cursor: pointer; }
+      select.resume { max-width: 150px; padding: 5px 7px; border: 2px solid #b48cff;
+                      background: #000; color: #fff; font: inherit; font-size: 11px; }
     </style>
     <div class="shell${bannerCollapsed ? " collapsed" : ""}">
       <button class="badge" data-act="expand" aria-label="Open Job Autopilot screening" title="Job Autopilot">
@@ -436,6 +439,7 @@ function render(result, { pending = false } = {}) {
           ${seen ? `<button class="open" data-act="open"><span>Open in autopilot</span></button>` : ""}
           ${canRetry ? `<button data-act="again">Again</button>` : ""}
           ${canAdd ? `<label class="approve" title="Checked: once the resume is tailored the fill starts by itself. Unchecked: it waits for your approval on the review page."><input type="checkbox" checked> auto-approve</label>` : ""}
+          ${canAdd ? `<select class="resume" aria-label="Resume base" title="Auto lets Autopilot choose the best starting resume for this job."><option value="">Resume · Auto</option></select>` : ""}
           ${canAdd ? `<button class="opus" data-act="opus" aria-pressed="${usePremium}" title="Tailor this job's resume and cover letter with the expensive model. About eight times the cost of a normal job, and it rewrites far more of the resume. The countdown keeps running.">${usePremium ? "Opus on" : "Use Opus"}</button>` : ""}
           ${canAdd ? `<button class="add" data-act="add"><i class="fill"></i><span>${seen ? "Add anyway" : onJobright ? "Open job page" : "Add to autopilot"}</span></button>` : ""}
           <button class="close" data-act="close" aria-label="Minimize Job Autopilot"><i class="fill"></i><span>−</span></button>
@@ -458,6 +462,24 @@ function render(result, { pending = false } = {}) {
   approve?.addEventListener("change", () => {
     if (onJobright && postingId()) post("/prefs", { jr_id: postingId(), auto_fill: approve.checked }).catch(() => {});
   });
+  const resumeSelect = shadow.querySelector("select.resume");
+  if (resumeSelect) {
+    post("/resume-bases", {}).then((response) => response.json()).then((data) => {
+      for (const row of data.bases || []) {
+        const option = document.createElement("option");
+        option.value = row.id;
+        option.textContent = row.label;
+        option.selected = row.id === selectedResumeBase;
+        resumeSelect.appendChild(option);
+      }
+    }).catch(() => {});
+    resumeSelect.addEventListener("change", () => {
+      selectedResumeBase = resumeSelect.value;
+      if (onJobright && postingId()) {
+        post("/prefs", { jr_id: postingId(), resume_base: selectedResumeBase }).catch(() => {});
+      }
+    });
+  }
   const label = (text) => { add.querySelector("span").textContent = text; };
   const idle = seen ? "Add anyway" : onJobright ? "Open job page" : "Add to autopilot";
   const closeBar = shadow.querySelector("button.close .fill");
@@ -574,7 +596,7 @@ function render(result, { pending = false } = {}) {
       }
     } else {
       label("Adding…");
-      result = await addToQueue(autoFill(), usePremium);
+      result = await addToQueue(autoFill(), usePremium, selectedResumeBase || null);
       label(result.label);
       queuedId = result.id;
       // The pipeline is now tailoring; keep the core purple until the
@@ -857,7 +879,7 @@ async function waitQueued() {
   return null;
 }
 
-async function addToQueue(autoFill = null, premium = false) {
+async function addToQueue(autoFill = null, premium = false, resumeBase = null) {
   try {
     const res = await post("/capture", {
       url: location.href,
@@ -865,6 +887,7 @@ async function addToQueue(autoFill = null, premium = false) {
       source: location.hostname,
       auto_fill: autoFill,
       premium,
+      resume_base: resumeBase,
       // The rendered text, for when the fetch sees a client-side shell or
       // an Apply that landed straight on the form.
       text: pageText(),

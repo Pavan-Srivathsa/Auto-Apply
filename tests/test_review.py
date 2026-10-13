@@ -163,7 +163,7 @@ def test_highlighted_resume_text_can_be_rewritten_with_default_or_opus(client, m
     monkeypatch.setattr(review_module.profile, "applicant_facts", lambda: "")
     seen = []
 
-    def rewrite(posting, resume_tex, selected, instruction, profile="", model=None):
+    def rewrite(posting, resume_tex, selected, instruction, profile="", model=None, **kwargs):
         seen.append((selected, instruction, model))
         return "Built a reliable Python API for 50K daily requests."
 
@@ -215,6 +215,57 @@ def test_reviewed_resume_edit_is_saved_as_a_new_version(client, monkeypatch):
         json={"expected": "old", "text": edited},
     )
     assert stale.status_code == 409
+
+
+def test_resume_base_can_be_overridden_and_retailored(client, tmp_path, monkeypatch):
+    import json
+    import time
+    import pipeline
+    from server import review as review_module
+
+    job_id, app_dir = reviewable_job()
+    root = tmp_path / "resumes"
+    monkeypatch.setattr(review_module.resume_bases, "ROOT", root)
+    monkeypatch.setattr(review_module.resume_bases, "REGISTRY", tmp_path / "resume_bases.json")
+    monkeypatch.setattr(review_module.resume_bases, "LEGACY_TEX", tmp_path / "legacy.tex")
+    rows = []
+    for base_id in ("swe", "ml", "data"):
+        directory = root / base_id
+        directory.mkdir(parents=True)
+        (directory / "resume.tex").write_text(
+            f"\\documentclass{{article}}\\begin{{document}}{base_id}\\end{{document}}"
+        )
+        (directory / "resume.pdf").write_bytes(b"%PDF")
+        rows.append({
+            "id": base_id, "label": base_id.upper(), "active": base_id != "swe",
+            "description": "", "summary": "", "target_roles": [],
+            "domains": [], "strengths": [],
+        })
+    review_module.resume_bases.REGISTRY.write_text(json.dumps({
+        "primary": "ml", "bases": rows,
+    }))
+    queue.update(job_id, resume_base="swe", resume_base_source="model")
+    detail = client.get(f"/review/{job_id}").json()
+    selected = next(row for row in detail["resume_bases"] if row["id"] == "swe")
+    assert selected["active"] is False, "an archived base must still be named on its existing job"
+    seen = {}
+
+    def fake_retailor(job, instruction, keep_status=False):
+        seen.update(base=job.resume_base, instruction=instruction, keep_status=keep_status)
+        return app_dir.parent / "ml-version"
+
+    monkeypatch.setattr(pipeline, "retailor", fake_retailor)
+    response = client.post(f"/review/{job_id}/resume-base", json={"base": "ml"})
+    for _ in range(40):
+        if not review_module.job_thread.running(job_id):
+            break
+        time.sleep(0.01)
+
+    assert response.status_code == 200
+    assert seen["base"] == "ml"
+    assert seen["keep_status"] is True
+    assert queue.get(job_id).resume_base == "ml"
+    assert queue.get(job_id).resume_base_source == "manual"
 
 
 def test_detail_surfaces_a_failed_cover_letter(client):
@@ -1045,6 +1096,10 @@ def test_review_page_has_explicit_reject_and_document_regeneration_controls():
     assert 'id="resumeRewriteOpus"' in page
     assert "/resume/rewrite" in page
     assert "/resume/save" in page
+    assert 'id="tabResumes"' in page
+    assert 'id="jobResumeBase"' in page
+    assert "/resume-base" in page
+    assert 'data-resume="add"' in page
     assert 'content: attr(data-model)' in page
 
 

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from archive import store
-from tailor import llm
+from tailor import llm, resume_bases
 
 from . import postings, queue, runner, seen, settings, watch
 from .models import Job, Status
@@ -59,6 +59,9 @@ class CaptureRequest(BaseModel):
     # The banner's "Use Opus" button. None: whatever was pressed for this
     # posting on Jobright's page (`/prefs`), else the cheap default.
     premium: Optional[bool] = None
+    # None = let the router choose. A slug is a human override from the
+    # posting banner and stays attached to this job.
+    resume_base: Optional[str] = None
 
 
 class PostingRequest(BaseModel):
@@ -150,20 +153,40 @@ def capture(req: CaptureRequest) -> dict:
                 "queued": len(queue.pending()), "processing": False}
     auto_fill = req.auto_fill
     premium = req.premium
+    resume_base = req.resume_base
     source_id = postings.source_id(req.url) or ""
     if auto_fill is None:
         auto_fill = AUTO_FILL_PREFS.pop(source_id, None)
     if premium is None:
         premium = PREMIUM_PREFS.pop(source_id, None)
+    if resume_base is None:
+        resume_base = RESUME_BASE_PREFS.pop(source_id, None)
+    if resume_base:
+        try:
+            resume_bases.get(resume_base, active_only=True)
+        except KeyError:
+            resume_base = None
     # The resolved model name travels on the row, not the flag: the folder
     # should say what it was written with even if the setting moves later.
     tailor_model = llm.premium_model() if premium else None
-    job, created = queue.add(Job(**req.model_dump(exclude={"text", "auto_fill", "premium"}),
-                                 auto_fill=auto_fill, tailor_model=tailor_model))
+    job, created = queue.add(Job(**req.model_dump(
+        exclude={"text", "auto_fill", "premium", "resume_base"}),
+        auto_fill=auto_fill, tailor_model=tailor_model,
+        resume_base=resume_base,
+        resume_base_source="manual" if resume_base else None,
+        resume_base_confidence="high" if resume_base else None,
+        resume_base_reason="Selected on the posting banner." if resume_base else None,
+    ))
     if not created and auto_fill is not None and job.auto_fill != auto_fill:
         job = queue.update(job.id, auto_fill=auto_fill) or job
     if not created and premium is not None and job.tailor_model != tailor_model:
         job = queue.update(job.id, tailor_model=tailor_model) or job
+    if not created and resume_base is not None and job.resume_base != resume_base:
+        job = queue.update(
+            job.id, resume_base=resume_base, resume_base_source="manual",
+            resume_base_confidence="high",
+            resume_base_reason="Selected on the posting banner.",
+        ) or job
     if req.text.strip():
         postings.save_captured(job.id, postings.Saved(url=req.url, title=req.title,
                                                       text=req.text, company=req.company))
@@ -185,10 +208,14 @@ AUTO_FILL_PREFS: dict[str, bool] = {}
 PREMIUM_PREFS: dict[str, bool] = {}
 
 
+RESUME_BASE_PREFS: dict[str, str] = {}
+
+
 class PrefRequest(BaseModel):
     jr_id: str
     auto_fill: Optional[bool] = None
     premium: Optional[bool] = None
+    resume_base: Optional[str] = None
 
 
 @app.post("/prefs")
@@ -199,7 +226,26 @@ def prefs(req: PrefRequest) -> dict:
         AUTO_FILL_PREFS[req.jr_id] = req.auto_fill
     if req.premium is not None:
         PREMIUM_PREFS[req.jr_id] = req.premium
+    if req.resume_base is not None:
+        if req.resume_base:
+            try:
+                resume_bases.get(req.resume_base, active_only=True)
+            except KeyError:
+                raise HTTPException(404, f"no active resume called {req.resume_base!r}") from None
+            RESUME_BASE_PREFS[req.jr_id] = req.resume_base
+        else:
+            RESUME_BASE_PREFS.pop(req.jr_id, None)
     return {"ok": True}
+
+
+@app.get("/resume-bases")
+@app.post("/resume-bases")
+def resume_base_options() -> dict:
+    rows = resume_bases.all_bases(active_only=True)
+    return {
+        "primary": resume_bases.primary_id() if rows else None,
+        "bases": [{"id": row.id, "label": row.label} for row in rows],
+    }
 
 
 class AutofilledRequest(BaseModel):

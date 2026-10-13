@@ -234,8 +234,26 @@ def test_setup_opens_only_named_pages(monkeypatch):
 def test_the_resume_is_uploaded_as_latex_only(tmp_path, monkeypatch):
     base = tmp_path / "base"
     monkeypatch.setattr(prompts_api.paths, "BASE", base)
+    monkeypatch.setattr(prompts_api.resume_bases, "ROOT", base / "resumes")
+    monkeypatch.setattr(prompts_api.resume_bases, "REGISTRY", tmp_path / "resume_bases.json")
+    monkeypatch.setattr(prompts_api.resume_bases, "CACHE", tmp_path / "resume_base_cache.json")
+    monkeypatch.setattr(prompts_api.resume_bases, "LEGACY_TEX", base / "resume.tex")
+    monkeypatch.setattr(prompts_api.resume_bases, "LEGACY_PDF", base / "resume.pdf")
+    monkeypatch.setattr(
+        prompts_api.resume_bases, "make_profile",
+        lambda tex, label, description="": {
+            "summary": label, "target_roles": ["Software Engineer"],
+            "domains": [], "strengths": [],
+        },
+    )
     compiled = []
-    monkeypatch.setattr(prompts_api.texc, "compile_pdf", lambda tex, out: compiled.append(tex))
+
+    def compile_pdf(tex, out):
+        compiled.append(tex)
+        out.write_bytes(b"%PDF")
+        return out
+
+    monkeypatch.setattr(prompts_api.texc, "compile_pdf", compile_pdf)
     client = TestClient(app)
     assert client.post("/setup/resume", json={"name": "cv.pdf", "text": "%PDF"}).status_code == 400
     assert client.post("/setup/resume", json={"name": "cv.tex", "text": "hello"}).status_code == 400
@@ -243,8 +261,47 @@ def test_the_resume_is_uploaded_as_latex_only(tmp_path, monkeypatch):
     reply = client.post("/setup/resume", json={"name": "cv.tex", "text": template}).json()
     assert reply["resume"] is True and reply["compiled"] is True and compiled
     other = "\\documentclass{article}\\begin{document}\\section{Experience}x\\end{document}"
-    reply = client.post("/setup/resume", json={"name": "mine.tex", "text": other}).json()
-    assert reply["resume"] is False and reply["resume_problems"]
-    # The one it replaced is kept.
-    assert len(list(base.glob("resume.*.tex"))) == 1
+    reply = client.post("/setup/resume", json={"name": "mine.tex", "text": other})
+    assert reply.status_code == 422
     assert client.get("/setup/template").text == template
+
+
+def test_setup_manages_more_than_two_resume_bases(tmp_path, monkeypatch):
+    base = tmp_path / "base"
+    monkeypatch.setattr(prompts_api.paths, "BASE", base)
+    monkeypatch.setattr(prompts_api.resume_bases, "ROOT", base / "resumes")
+    monkeypatch.setattr(prompts_api.resume_bases, "REGISTRY", tmp_path / "resume_bases.json")
+    monkeypatch.setattr(prompts_api.resume_bases, "CACHE", tmp_path / "cache.json")
+    monkeypatch.setattr(prompts_api.resume_bases, "LEGACY_TEX", base / "resume.tex")
+    monkeypatch.setattr(prompts_api.resume_bases, "LEGACY_PDF", base / "resume.pdf")
+    monkeypatch.setattr(
+        prompts_api.resume_bases, "make_profile",
+        lambda tex, label, description="": {
+            "summary": description or label, "target_roles": [label],
+            "domains": [], "strengths": [],
+        },
+    )
+
+    def compile_pdf(tex, out):
+        out.write_bytes(b"%PDF")
+        return out
+
+    monkeypatch.setattr(prompts_api.texc, "compile_pdf", compile_pdf)
+    template = prompts_api.TEMPLATE.read_text()
+    client = TestClient(app)
+    for label in ("Software Engineering", "Machine Learning", "Data Science"):
+        response = client.post("/setup/resume", json={
+            "name": f"{label}.tex", "text": template, "label": label,
+            "description": f"Use for {label} roles.",
+        })
+        assert response.status_code == 200, response.text
+
+    state = client.get("/setup").json()
+    assert len(state["resumes"]) == 3
+    data_id = next(row["id"] for row in state["resumes"] if row["label"] == "Data Science")
+    ml_id = next(row["id"] for row in state["resumes"] if row["label"] == "Machine Learning")
+    assert client.post(f"/setup/resume/{data_id}/primary", json={}).status_code == 200
+    assert client.post(f"/setup/resume/{ml_id}/active", json={"active": False}).status_code == 200
+    options = client.post("/resume-bases", json={}).json()
+    assert options["primary"] == data_id
+    assert len(options["bases"]) == 2

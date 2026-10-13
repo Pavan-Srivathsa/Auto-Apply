@@ -41,7 +41,7 @@ def stub_success(monkeypatch):
     monkeypatch.setattr(pipeline.fetch, "fetch", lambda url: Posting(
         url=url, text="Distributed systems role. " * 20,
         title="Backend Engineer", company="Example Corp"))
-    monkeypatch.setattr(pipeline, "base_page_count", lambda: 1)
+    monkeypatch.setattr(pipeline, "base_page_count", lambda *args: 1)
     monkeypatch.setattr(pipeline.tailor, "tailor", lambda posting, **kwargs: TailorResult(
         tex="\\documentclass{article}\\begin{document}x\\end{document}",
         suggestions="- reordered experience",
@@ -64,6 +64,56 @@ def test_happy_path_stops_at_awaiting_review(monkeypatch):
         assert (app_dir / artifact).exists(), artifact
     assert (app_dir / "cover_letter.md").read_text().startswith("Dear Hiring Manager")
     assert "Sincerely, \\\\\nJane Doe" in (app_dir / "cover_letter.tex").read_text()
+
+
+def test_job_uses_its_sticky_resume_base_and_archives_the_master(tmp_path, monkeypatch):
+    stub_success(monkeypatch)
+    root = tmp_path / "resumes"
+    monkeypatch.setattr(pipeline.resume_bases, "ROOT", root)
+    monkeypatch.setattr(pipeline.resume_bases, "REGISTRY", tmp_path / "resume_bases.json")
+    monkeypatch.setattr(pipeline.resume_bases, "CACHE", tmp_path / "resume_cache.json")
+    monkeypatch.setattr(pipeline.resume_bases, "LEGACY_TEX", tmp_path / "legacy.tex")
+    monkeypatch.setattr(pipeline.resume_bases, "LEGACY_PDF", tmp_path / "legacy.pdf")
+    rows = []
+    for base_id in ("swe", "ml", "data"):
+        directory = root / base_id
+        directory.mkdir(parents=True)
+        tex = f"\\documentclass{{article}}\\begin{{document}}{base_id} master\\end{{document}}"
+        (directory / "resume.tex").write_text(tex)
+        (directory / "resume.pdf").write_bytes(b"%PDF")
+        rows.append({
+            "id": base_id, "label": base_id.upper(), "active": True,
+            "description": "", "summary": base_id, "target_roles": [],
+            "domains": [], "strengths": [],
+        })
+    pipeline.resume_bases.REGISTRY.write_text(json.dumps({
+        "primary": "swe", "bases": rows,
+    }))
+    seen = {}
+
+    def tailored(posting, **kwargs):
+        seen["master"] = kwargs["resume_tex"]
+        seen["layout_pdf"] = kwargs["layout_pdf"]
+        return TailorResult(
+            tex=kwargs["resume_tex"], suggestions="- kept facts",
+            diff="", model="test/model",
+        )
+
+    monkeypatch.setattr(pipeline.tailor, "tailor", tailored)
+    job, _ = queue.add(Job(
+        url="https://example.com/jobs/sticky", title="ML Engineer",
+        resume_base="ml", resume_base_source="manual",
+        resume_base_confidence="high", resume_base_reason="Picked on banner.",
+    ))
+
+    app_dir = pipeline.process(job)
+
+    assert "ml master" in seen["master"]
+    assert seen["layout_pdf"] == root / "ml" / "resume.pdf"
+    assert "ml master" in (app_dir / "master_resume.tex").read_text()
+    choice = json.loads((app_dir / "resume_base.json").read_text())
+    assert choice["base"] == "ml" and choice["source"] == "manual"
+    assert queue.get(job.id).resume_base == "ml"
 
 
 def test_screen_verdict_is_archived_and_changes_nothing(monkeypatch):
@@ -371,12 +421,16 @@ def test_saving_an_edited_resume_validates_and_creates_a_new_version(monkeypatch
     first = pipeline.process(job)
     old_letter = (first / "cover_letter.md").read_bytes()
     original = (first / "resume.tex").read_text()
+    archived_master = (first / "master_resume.tex").read_text()
+    pipeline.resume_bases.get(queue.get(job.id).resume_base).tex_path.write_text(
+        "\\documentclass{article}\\begin{document}replacement master\\end{document}"
+    )
     edited = original.replace("x\\end{document}", "reliable backend systems\\end{document}")
     queue.update(job.id, status=Status.FILLED)
     seen = {}
 
-    def validate(master, candidate, profile_text, posting):
-        seen.update(candidate=candidate, profile=profile_text, posting=posting)
+    def validate(master, candidate, profile_text, posting, width=None):
+        seen.update(master=master, candidate=candidate, profile=profile_text, posting=posting)
         return ["one line became shorter"]
 
     monkeypatch.setattr(pipeline.tailor, "_validate", validate)
@@ -392,6 +446,7 @@ def test_saving_an_edited_resume_validates_and_creates_a_new_version(monkeypatch
     assert (second / "resume.pdf").exists()
     assert (second / "cover_letter.md").read_bytes() == old_letter
     assert "one line became shorter" in (second / "suggestions.md").read_text()
+    assert seen["master"] == archived_master
     assert seen["candidate"] == edited
     assert "Distributed systems role" in seen["posting"]
     assert queue.get(job.id).status is Status.FILLED

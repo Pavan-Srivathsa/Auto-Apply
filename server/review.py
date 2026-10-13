@@ -26,7 +26,7 @@ from archive import store
 from browser import chrome, guard
 from server import corrections, queue, runner, seen, thread as job_thread
 from server.models import REJECT_LABELS, Job, RejectReason, Status
-from tailor import answers, cover, fetch, llm, profile, tailor
+from tailor import answers, cover, fetch, llm, profile, resume_bases, tailor
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -120,6 +120,10 @@ class ResumeSave(BaseModel):
     text: str
 
 
+class ResumeBaseChoice(BaseModel):
+    base: str
+
+
 def _job_and_dir(job_id: str) -> tuple[Job, Path]:
     job = queue.get(job_id)
     if job is None:
@@ -142,6 +146,18 @@ def detail(job_id: str) -> dict:
         path = app_dir / name
         return path.read_text(errors="replace") if path.exists() else ""
 
+    base_choice = {}
+    try:
+        base_choice = json.loads(read("resume_base.json") or "{}")
+    except json.JSONDecodeError:
+        pass
+    selected_id = str(base_choice.get("base") or job.resume_base or "")
+    bases = resume_bases.all_bases(active_only=True)
+    if selected_id and all(row.id != selected_id for row in bases):
+        try:
+            bases.append(resume_bases.get(selected_id))
+        except KeyError:
+            pass
     return {
         "id": job.id,
         "url": job.url,
@@ -157,6 +173,19 @@ def detail(job_id: str) -> dict:
         "screen": _screen(app_dir),
         "screen_error": read("screen_error.txt"),
         "resume_source": read("resume.tex"),
+        "resume_base": base_choice or {
+            "base": job.resume_base,
+            "source": job.resume_base_source,
+            "confidence": job.resume_base_confidence,
+            "reason": job.resume_base_reason,
+        },
+        "resume_bases": [
+            {
+                "id": row.id, "label": row.label,
+                "description": row.description, "active": row.active,
+            }
+            for row in bases
+        ],
         "cover_letter": read("cover_letter.md"),
         "cover_letter_error": read("cover_letter_error.txt"),
         "resume_models": {
@@ -339,6 +368,8 @@ def rewrite_resume_selection(job_id: str, body: ResumeRewrite) -> dict:
         replacement = tailor.rewrite_selection(
             posting, resume_tex, selected, body.instruction,
             profile=context.profile, model=model,
+            master_tex=(app_dir / "master_resume.tex").read_text(errors="replace")
+            if (app_dir / "master_resume.tex").exists() else None,
         )
     except tailor.TailorError as exc:
         raise HTTPException(502, str(exc))
@@ -366,6 +397,38 @@ def save_resume_edit(job_id: str, body: ResumeSave) -> dict:
         "folder": new_dir.name,
         "status": (queue.get(job_id) or job).status.value,
     }
+
+
+@router.post("/{job_id}/resume-base")
+def change_resume_base(job_id: str, body: ResumeBaseChoice) -> dict:
+    """Select another master and rebuild both documents in a new version."""
+    job, _ = _job_and_dir(job_id)
+    try:
+        base = resume_bases.get(body.base, active_only=True)
+    except KeyError:
+        raise HTTPException(404, f"no active resume called {body.base!r}") from None
+    if base.id == job.resume_base:
+        return {"id": job_id, "running": False, "base": base.id}
+
+    from pipeline import retailor  # lazy: pipeline imports the server package
+
+    instruction = f"Re-tailor from the manually selected master resume: {base.label}."
+
+    def work() -> str:
+        current = queue.update(
+            job_id,
+            resume_base=base.id,
+            resume_base_source="manual",
+            resume_base_confidence="high",
+            resume_base_reason="Selected on the review page.",
+        ) or job
+        return retailor(current, instruction, keep_status=True).name
+
+    try:
+        job_thread.start_change(job_id, instruction, work, target="both")
+    except job_thread.ThreadError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return {"id": job_id, "running": True, "base": base.id}
 
 
 @router.post("/{job_id}/cover/save")
