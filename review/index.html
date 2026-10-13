@@ -2078,6 +2078,7 @@ const Resumes = (() => {
         <div class="actions">
           ${!row.primary && row.active ? '<button class="act" id="resumePrimary">Make primary fallback</button>' : ""}
           <button class="act ${row.active ? "danger" : ""}" id="resumeActive">${row.active ? "Archive" : "Restore"}</button>
+          ${!row.active ? '<button class="act danger" id="resumeDelete">Delete permanently</button>' : ""}
         </div>
         ${form(row)}
         ${row.compiled ? `<iframe src="/setup/resume/${encodeURIComponent(row.id)}/pdf?v=${encodeURIComponent(row.version || row.id)}#toolbar=0&view=Fit"
@@ -2100,6 +2101,16 @@ const Resumes = (() => {
         });
         render();
       } catch (err) { alert(`Could not ${action}: ${err.message}`); }
+    };
+    if ($("resumeDelete")) $("resumeDelete").onclick = async () => {
+      if (!confirm(`Delete ${row.label} permanently?\n\nIts source, PDF, and saved history will be removed.`)) return;
+      try {
+        state = await api(`/setup/resume/${encodeURIComponent(row.id)}/delete`, {
+          method: "POST", body: "{}",
+        });
+        viewing = "add";
+        render();
+      } catch (err) { alert(`Could not delete: ${err.message}`); }
     };
     $("resumeUpload").onchange = async (event) => {
       const file = event.target.files[0];

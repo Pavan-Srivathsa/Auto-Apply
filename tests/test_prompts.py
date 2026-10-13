@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from server import prompts as prompts_api
 from server import thread
 from server.app import app
+from server.models import Job
 from tailor import prompts, tailor, workshop
 
 
@@ -305,3 +306,14 @@ def test_setup_manages_more_than_two_resume_bases(tmp_path, monkeypatch):
     options = client.post("/resume-bases", json={}).json()
     assert options["primary"] == data_id
     assert len(options["bases"]) == 2
+    assert client.post(f"/setup/resume/{data_id}/delete", json={}).status_code == 409
+
+    job, _ = prompts_api.queue.add(Job(
+        url="https://example.com/jobs/uses-ml-resume", resume_base=ml_id,
+    ))
+    blocked = client.post(f"/setup/resume/{ml_id}/delete", json={})
+    assert blocked.status_code == 409 and "existing job" in blocked.json()["detail"]
+    prompts_api.queue.remove(job.id)
+    assert client.post(f"/setup/resume/{ml_id}/delete", json={}).status_code == 200
+    assert not (base / "resumes" / ml_id).exists()
+    assert len(client.get("/setup").json()["resumes"]) == 2

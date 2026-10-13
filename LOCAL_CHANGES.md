@@ -42,3 +42,8 @@ Intent: The review page pairs the resume PDF with editable source, offers Defaul
 Asked: support two or more resume formats and have an agent choose the best starting resume for each position before tailoring.
 Changed: `tailor/resume_bases.py`, the pipeline, setup and review APIs, the posting banner, the Resumes and Jobs views, prompt catalog, job model, layout and profile handling, and focused tests.
 Intent: Any number of independently formatted LaTeX resumes can be compiled, profiled once, archived, restored, and selected manually. Each new job uses an exact-role rule, a cached match, or one cheap routing call to choose one resume, then tailors only that source. The choice and historical master are archived with every immutable document version.
+
+## 2026-10-12 — Permanently remove an unused resume
+Asked: add a delete button for uploaded resume formats.
+Changed: the Resumes tab, setup API, resume registry, and focused tests.
+Intent: An archived resume can be permanently deleted after confirmation, while active resumes and resumes still selected by a job are protected from deletion.

@@ -354,6 +354,25 @@ def active_resume(base_id: str, body: ResumeActive) -> dict:
     return setup_status()
 
 
+@router.post("/setup/resume/{base_id}/delete")
+def delete_resume(base_id: str) -> dict:
+    try:
+        base = resume_bases.get(base_id)
+    except KeyError:
+        raise HTTPException(404, f"no resume called {base_id!r}") from None
+    if base.active:
+        raise HTTPException(409, "archive this resume before deleting it")
+    if any(job.resume_base == base.id for job in queue.all_jobs()):
+        raise HTTPException(
+            409, "this resume is still selected by an existing job; switch that job first"
+        )
+    try:
+        resume_bases.delete_base(base.id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return setup_status()
+
+
 @router.post("/setup/done")
 def setup_done() -> dict:
     settings.save(onboarded=True)

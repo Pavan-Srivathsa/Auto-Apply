@@ -326,6 +326,21 @@ def set_active(base_id: str, active: bool) -> None:
         set_primary(all_bases(active_only=True)[0].id)
 
 
+def delete_base(base_id: str) -> None:
+    """Permanently remove an archived base and its local source history."""
+    row = get(base_id)
+    if row.active:
+        raise ValueError("archive this resume before deleting it")
+    data = _materialise()
+    data["bases"] = [
+        value for value in data.get("bases", [])
+        if slugify(str(value.get("id", "")), 40) != row.id
+    ]
+    _write_json(REGISTRY, data)
+    if row.directory.exists():
+        shutil.rmtree(row.directory)
+
+
 def derive_model() -> str:
     return os.environ.get("OPENROUTER_SCREEN_MODEL", "deepseek/deepseek-v4-flash")
 

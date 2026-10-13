@@ -1100,6 +1100,8 @@ def test_review_page_has_explicit_reject_and_document_regeneration_controls():
     assert 'id="jobResumeBase"' in page
     assert "/resume-base" in page
     assert 'data-resume="add"' in page
+    assert 'id="resumeDelete"' in page
+    assert "/setup/resume/${encodeURIComponent(row.id)}/delete" in page
     assert 'content: attr(data-model)' in page
 
 
