@@ -9,8 +9,9 @@ from tailor.fetch import Posting
 
 POSTING = Posting(url="https://example.com/j/1", text="Build APIs.", title="Backend Engineer",
                   company="Example Corp")
-GOOD = ("Dear Hiring Manager,\n\n" + ("I built things. " * 40).strip()
-        + "\n\nSincerely,\nJane Doe")
+GOOD = ("Dear Hiring Manager,\n\n"
+        + "\n\n".join(("I built things. " * 23).strip() for _ in range(4))
+        + "\n\nBest,\nJane Doe")
 DASHED = GOOD.replace("I built things. I built things.", "I built things — and more. I built things.", 1)
 
 
@@ -29,10 +30,10 @@ def test_escape_handles_every_latex_special():
 
 
 def test_to_tex_keeps_the_sign_off_on_adjacent_lines():
-    tex = cover.to_tex("Dear X,\n\nBody 100%.\n\nSincerely,\nJane Doe", today=dt.date(2026, 9, 11))
+    tex = cover.to_tex("Dear X,\n\nBody 100%.\n\nBest,\nJane Doe", today=dt.date(2026, 9, 11))
     assert "September 11, 2026" in tex
     assert "Body 100\\%." in tex
-    assert "Sincerely, \\\\\nJane Doe" in tex
+    assert "Best, \\\\\nJane Doe" in tex
     assert tex.count("\\documentclass") == 1
     assert "fontspec" not in tex, "pdflatex only; BasicTeX has no fonts to spec"
 
@@ -110,7 +111,7 @@ def test_write_retries_once_when_the_shape_is_wrong(monkeypatch):
     letter = cover.write(POSTING, "x")
     assert letter.attempts == 2
     assert "previous reply was rejected" in seen[1] and "2 words" in seen[1]
-    assert "Sincerely" in seen[1]
+    assert "Best" in seen[1]
 
 
 def test_write_gives_up_after_the_retry(monkeypatch):

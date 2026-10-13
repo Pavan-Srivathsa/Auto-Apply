@@ -12,3 +12,8 @@ Intent: An approved job offers Open application, Autopilot fill, and Jobright + 
 Asked: "After Jobright autofill is done ... make sure [the bar] stays."
 Changed: `capture/content.js` and `tests/test_capture.py`.
 Intent: Once any automation works on an application form, the full Autopilot bar remains expanded through the handoff to the human; only an explicit minimize click folds it.
+
+## 2026-10-12 — Generate evidence-led personalized cover letters
+Asked: replace generic cover letters with a detailed personalization, evidence, company-fit, and quality-control prompt.
+Changed: the personal `cover` and `cover.format` prompt overrides, `tailor/cover.py`, and `tests/test_cover.py`.
+Intent: Letters now make one role-specific technical argument in 250–350 words, use only supported facts and posting-provided company details, and close with the requested “Best,” sign-off.

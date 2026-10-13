@@ -27,10 +27,10 @@ Reply with the letter only: greeting, paragraphs, "Sincerely," and the name.
 No preamble, no commentary, no code fence, no markdown.
 """
 
-# Word bounds, checked rather than trusted. A letter far outside them is
-# either a rewrite of the resume or a note, and neither is worth a retry
-# budget: it is rejected once with the count, and the model gets one more go.
-MIN_WORDS, MAX_WORDS = 100, 260
+# Word bounds, checked rather than trusted. The person's cover-letter prompt
+# asks for enough room to make one technical argument and one company-specific
+# argument without turning the letter into a resume recap.
+MIN_WORDS, MAX_WORDS = 250, 350
 ATTEMPTS = 3
 
 # Dash characters the model reaches for as punctuation. The rules forbid
@@ -88,8 +88,12 @@ def problems(text: str) -> list[str]:
     words = len(text.split())
     if words < MIN_WORDS or words > MAX_WORDS:
         found.append(f"it was {words} words; write between {MIN_WORDS} and {MAX_WORDS}")
-    if "sincerely" not in text.lower():
-        found.append('it did not end with "Sincerely," and the name')
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    body_count = max(0, len(paragraphs) - 2)  # greeting and sign-off are not body paragraphs
+    if body_count < 3 or body_count > 5:
+        found.append(f"it had {body_count} body paragraphs; write between 3 and 5")
+    if not re.search(r"(?:^|\n\n)Best,\s*\n\S", text, re.I):
+        found.append('it did not end with "Best," and the name')
     if has_dash(text):
         found.append("it used a dash as punctuation; use a comma or a full stop instead")
     return found
