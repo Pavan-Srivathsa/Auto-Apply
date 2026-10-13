@@ -82,6 +82,70 @@ def test_detail_carries_the_cover_letter_and_its_pdf(client):
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
 
 
+def test_highlighted_cover_text_can_be_rewritten_with_default_or_opus(client, monkeypatch):
+    from server import review as review_module
+
+    job_id, app_dir = reviewable_job()
+    store.write(app_dir, "posting.md", "# Backend Engineer\n\nBuild reliable APIs.")
+    store.write(app_dir, "resume.tex", "\\documentclass{article}\\begin{document}Evidence\\end{document}")
+    store.write(
+        app_dir, "cover_letter.md",
+        "Dear Hiring Manager,\n\nI can grow the business.\n\nBest,\nJane Doe\n",
+    )
+    monkeypatch.setattr(review_module.llm, "tailor_model", lambda: "default/model")
+    monkeypatch.setattr(review_module.llm, "premium_model", lambda: "premium/model")
+    monkeypatch.setattr(review_module.tailor, "load_profile", lambda stories=None: "profile")
+    monkeypatch.setattr(review_module.profile, "applicant_facts", lambda: "")
+    seen = []
+
+    def rewrite(posting, resume_tex, letter, selected, instruction, profile="", model=None):
+        seen.append((selected, instruction, model))
+        return "I would be glad to contribute and learn from the team."
+
+    monkeypatch.setattr(review_module.cover, "rewrite_selection", rewrite)
+    body = {
+        "selected": "I can grow the business.",
+        "instruction": "Make this warmer.",
+    }
+    default = client.post(f"/review/{job_id}/cover/rewrite", json=body)
+    premium = client.post(f"/review/{job_id}/cover/rewrite", json=body | {"premium": True})
+
+    assert default.status_code == premium.status_code == 200
+    assert default.json()["model"] == "default/model"
+    assert premium.json()["model"] == "premium/model"
+    assert seen == [
+        ("I can grow the business.", "Make this warmer.", "default/model"),
+        ("I can grow the business.", "Make this warmer.", "premium/model"),
+    ]
+
+
+def test_reviewed_cover_edit_is_saved_as_a_new_version(client, monkeypatch):
+    job_id, app_dir = reviewable_job()
+    original = "Dear Hiring Manager,\n\nOriginal.\n\nBest,\nJane Doe\n"
+    store.write(app_dir, "cover_letter.md", original)
+    seen = {}
+
+    def fake_save(job, text):
+        seen["job"], seen["text"] = job.id, text
+        return app_dir.parent / "new-cover-version"
+
+    import pipeline
+    monkeypatch.setattr(pipeline, "save_cover", fake_save)
+    response = client.post(
+        f"/review/{job_id}/cover/save",
+        json={"expected": original, "text": original.replace("Original.", "Warmer.")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["folder"] == "new-cover-version"
+    assert seen == {"job": job_id, "text": original.replace("Original.", "Warmer.")}
+    stale = client.post(
+        f"/review/{job_id}/cover/save",
+        json={"expected": "old", "text": "new"},
+    )
+    assert stale.status_code == 409
+
+
 def test_detail_surfaces_a_failed_cover_letter(client):
     job_id, app_dir = reviewable_job()
     store.write(app_dir, "cover_letter_error.txt", "LLMError: no content\n")
@@ -902,6 +966,10 @@ def test_review_page_has_explicit_reject_and_document_regeneration_controls():
     assert 'id="coverGo">Regenerate cover letter' in page
     assert 'id="deleteJob">Delete' in page
     assert 'Type DELETE to confirm permanent deletion.' in page
+    assert 'id="coverEditText"' in page
+    assert 'id="coverRewriteDefault"' in page
+    assert 'id="coverRewriteOpus"' in page
+    assert 'content: attr(data-model)' in page
 
 
 def test_reveal_names_the_files_and_shows_them_in_finder(client, monkeypatch):

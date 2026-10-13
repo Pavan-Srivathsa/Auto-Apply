@@ -343,6 +343,28 @@ def test_regenerating_only_the_resume_keeps_the_cover_letter_and_status(monkeypa
     assert queue.get(job.id).app_dir == str(second)
 
 
+def test_saving_an_edited_cover_letter_creates_a_new_version(monkeypatch):
+    stub_success(monkeypatch)
+    job, _ = queue.add(Job(url="https://example.com/jobs/edit-cover", title="Backend Engineer"))
+    first = pipeline.process(job)
+    old_resume = (first / "resume.tex").read_bytes()
+    queue.update(job.id, status=Status.FILLED)
+    edited = (
+        "Dear Hiring Manager,\n\n"
+        + "\n\n".join(("Warm evidence sentence. " * 21).strip() for _ in range(4))
+        + "\n\nBest,\nJane Doe"
+    )
+
+    second = pipeline.save_cover(queue.get(job.id), edited)
+
+    assert second != first
+    assert (second / "resume.tex").read_bytes() == old_resume
+    assert (second / "cover_letter.md").read_text() == edited + "\n"
+    assert (second / "cover_letter.pdf").exists()
+    assert queue.get(job.id).status is Status.FILLED
+    assert queue.get(job.id).app_dir == str(second)
+
+
 def test_the_jobs_model_reaches_the_resume_and_the_letter(monkeypatch):
     """"Use Opus" is a per-job choice, so both documents a human reads are
     written with it; everything else stays on the cheap default."""

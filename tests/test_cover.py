@@ -126,3 +126,28 @@ def test_a_letter_without_a_sign_off_is_rejected(monkeypatch):
     monkeypatch.setattr(cover.llm, "complete", lambda *a, **k: next(replies))
     monkeypatch.setattr(cover.llm, "tailor_model", lambda: "test/model")
     assert cover.write(POSTING, "x").attempts == 2
+
+
+def test_rewrite_selection_returns_only_replacement_prose(monkeypatch):
+    seen = {}
+
+    def fake_complete(system, user, **kwargs):
+        seen.update(system=system, user=user, model=kwargs["model"])
+        return "I would appreciate the opportunity — to learn more about the team."
+
+    monkeypatch.setattr(cover.llm, "complete", fake_complete)
+    replacement = cover.rewrite_selection(
+        POSTING,
+        "\\documentclass{article}",
+        GOOD,
+        "I can grow the business.",
+        "Make this warmer and less presumptive.",
+        profile="Built reliable systems.",
+        model="premium/model",
+    )
+
+    assert replacement == "I would appreciate the opportunity, to learn more about the team."
+    assert "replacement prose" in seen["system"]
+    assert "I can grow the business." in seen["user"]
+    assert "Make this warmer" in seen["user"]
+    assert seen["model"] == "premium/model"

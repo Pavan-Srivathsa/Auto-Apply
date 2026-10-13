@@ -27,6 +27,21 @@ Reply with the letter only: greeting, paragraphs, "Sincerely," and the name.
 No preamble, no commentary, no code fence, no markdown.
 """
 
+EDIT_PROMPT = """
+You revise only the highlighted passage of an existing cover letter.
+
+Return replacement prose for that passage only. Do not return the whole letter,
+analysis, quotation marks, headings, markdown, or a code fence. Follow the
+reviewer's instruction while preserving the passage's purpose and making it fit
+the surrounding letter naturally.
+
+Use only facts supported by the supplied resume, profile, posting, and existing
+letter. Do not add a skill, result, metric, company fact, or motivation. Keep
+the voice warm, grounded, collaborative, and technically credible. Confidence
+must come from evidence, never from claims about what the candidate will do for
+the company. Use no em dash, en dash, spaced hyphen, or semicolon.
+"""
+
 # Word bounds, checked rather than trusted. The person's cover-letter prompt
 # asks for enough room to make one technical argument and one company-specific
 # argument without turning the letter into a resume recap.
@@ -145,6 +160,36 @@ def write(posting: Posting, resume_tex: str, profile: str = "", extra_instructio
     raise CoverLetterError(
         f"cover letter broke the rules on {ATTEMPTS} attempts: " + "; ".join(last_problems)
     )
+
+
+def rewrite_selection(posting: Posting, resume_tex: str, letter: str, selected: str,
+                      instruction: str, profile: str = "",
+                      model: Optional[str] = None) -> str:
+    """Rewrite one highlighted passage, returning replacement prose only."""
+    selected = selected.strip()
+    instruction = instruction.strip()
+    if not selected:
+        raise CoverLetterError("highlight some cover-letter text first")
+    if not instruction:
+        raise CoverLetterError("say how the highlighted text should change")
+    user = (
+        f"## Reviewer instruction\n\n{instruction}\n\n"
+        f"## Highlighted passage\n\n{selected}\n\n"
+        f"## Existing cover letter\n\n{letter.strip()}\n\n"
+        + _user_message(posting, resume_tex, profile, "")
+    )
+    replacement = clean(llm.complete(
+        prompts.text("cover.edit"),
+        user,
+        model=model or llm.tailor_model(),
+        temperature=0.5,
+        max_tokens=1200,
+    ))
+    if not replacement:
+        raise CoverLetterError("model returned no replacement")
+    if has_dash(replacement):
+        replacement = strip_dashes(replacement)
+    return replacement
 
 
 # --- PDF ---------------------------------------------------------------------

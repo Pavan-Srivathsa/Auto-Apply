@@ -26,7 +26,7 @@ from archive import store
 from browser import chrome, guard
 from server import corrections, queue, runner, seen, thread as job_thread
 from server.models import REJECT_LABELS, Job, RejectReason, Status
-from tailor import answers, llm, profile, tailor
+from tailor import answers, cover, fetch, llm, profile, tailor
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -98,6 +98,17 @@ class ThreadMessage(BaseModel):
     premium: bool = False
 
 
+class CoverRewrite(BaseModel):
+    selected: str
+    instruction: str
+    premium: bool = False
+
+
+class CoverSave(BaseModel):
+    expected: str
+    text: str
+
+
 def _job_and_dir(job_id: str) -> tuple[Job, Path]:
     job = queue.get(job_id)
     if job is None:
@@ -136,6 +147,10 @@ def detail(job_id: str) -> dict:
         "screen_error": read("screen_error.txt"),
         "cover_letter": read("cover_letter.md"),
         "cover_letter_error": read("cover_letter_error.txt"),
+        "cover_models": {
+            "default": job.tailor_model or llm.tailor_model(),
+            "premium": llm.premium_model(),
+        },
         "reject_reason": job.reject_reason.value if job.reject_reason else None,
         "reject_label": REJECT_LABELS.get(job.reject_reason) if job.reject_reason else None,
         "reject_note": job.reject_note,
@@ -245,6 +260,62 @@ def say(job_id: str, body: ThreadMessage) -> dict:
         raise
     job_thread.add(job_id, "answer", result.text, model=result.model)
     return {"id": job_id, "turns": job_thread.load(job_id), "running": False}
+
+
+@router.post("/{job_id}/cover/rewrite")
+def rewrite_cover_selection(job_id: str, body: CoverRewrite) -> dict:
+    """Rewrite highlighted cover-letter prose without saving it yet."""
+    job, app_dir = _job_and_dir(job_id)
+    letter_path = app_dir / "cover_letter.md"
+    resume_path = app_dir / "resume.tex"
+    if not letter_path.exists() or not resume_path.exists():
+        raise HTTPException(409, "this job does not have both a cover letter and resume")
+    letter = letter_path.read_text(errors="replace").strip()
+    selected = body.selected.strip()
+    if not selected or selected not in letter:
+        raise HTTPException(409, "the highlighted text is stale; select it again")
+    if not body.instruction.strip():
+        raise HTTPException(400, "say how the highlighted text should change")
+
+    context = answers.Context.from_app_dir(
+        app_dir,
+        profile=tailor.load_profile(stories=profile.read_used(app_dir)),
+        applicant=profile.applicant_facts() or "",
+    )
+    posting = fetch.Posting(
+        url=job.url, text=context.posting, title=job.title, company=job.company,
+    )
+    model = llm.premium_model() if body.premium else (job.tailor_model or llm.tailor_model())
+    try:
+        replacement = cover.rewrite_selection(
+            posting, context.resume_tex, letter, selected, body.instruction,
+            profile=context.profile, model=model,
+        )
+    except cover.CoverLetterError as exc:
+        raise HTTPException(502, str(exc))
+    return {"id": job_id, "replacement": replacement, "model": model}
+
+
+@router.post("/{job_id}/cover/save")
+def save_cover_edit(job_id: str, body: CoverSave) -> dict:
+    """Save the reviewed text into a new immutable application version."""
+    from pipeline import save_cover  # lazy: pipeline imports the server package
+
+    job, app_dir = _job_and_dir(job_id)
+    current = (app_dir / "cover_letter.md").read_text(errors="replace") if (
+        app_dir / "cover_letter.md"
+    ).exists() else ""
+    if body.expected != current:
+        raise HTTPException(409, "the cover letter changed; reload before saving this edit")
+    try:
+        new_dir = save_cover(job, body.text)
+    except cover.CoverLetterError as exc:
+        raise HTTPException(422, str(exc))
+    return {
+        "id": job_id,
+        "folder": new_dir.name,
+        "status": (queue.get(job_id) or job).status.value,
+    }
 
 
 @router.post("/{job_id}/reveal")

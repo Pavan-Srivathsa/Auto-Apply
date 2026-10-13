@@ -518,6 +518,41 @@ def regenerate(job: Job, instruction: str, target: str) -> Path:
     return app_dir
 
 
+def save_cover(job: Job, text: str) -> Path:
+    """Archive a human-reviewed cover-letter edit as a new document version."""
+    text = cover.clean(text)
+    issues = cover.problems(text)
+    if issues:
+        raise cover.CoverLetterError("; ".join(issues))
+    current = queue.get(job.id) or job
+    if not current.app_dir:
+        raise FileNotFoundError("this job has no application folder")
+    source = Path(current.app_dir)
+    if not source.exists():
+        raise FileNotFoundError(f"application folder {source.name} is gone")
+
+    stories = profile.read_used(source)
+    app_dir = store.create(current)
+    store.set_status(app_dir, Status.TAILORING, "saving edited cover letter")
+    _carry(source, app_dir, [
+        "posting.md", "screen.json", "screen_error.txt", "resume.tex", "resume.pdf",
+        "resume.diff", "suggestions.md", "resume_changes.tex", "resume_changes.pdf",
+        "resume_both.tex", "resume_both.pdf", "mismatch.md",
+    ])
+    store.write(app_dir, "stories_used.txt", "\n".join(stories) + ("\n" if stories else ""))
+    try:
+        store.write(app_dir, "cover_letter.md", text + "\n")
+        store.write(app_dir, "cover_letter.tex", cover.to_tex(text))
+        texc.compile_pdf(app_dir / "cover_letter.tex", app_dir / "cover_letter.pdf")
+    except Exception as exc:
+        store.set_status(app_dir, Status.FAILED, f"{type(exc).__name__}: {exc}")
+        raise
+
+    store.set_status(app_dir, current.status, f"saved edited cover letter; {len(text.split())} words")
+    queue.update(current.id, app_dir=str(app_dir), status=current.status, error=None)
+    return app_dir
+
+
 def process_safely(job: Job) -> bool:
     try:
         app_dir = process(job)

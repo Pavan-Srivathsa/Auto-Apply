@@ -295,6 +295,22 @@
   .docs iframe { display: block; aspect-ratio: 8.5 / 11; height: auto; margin: 0 auto;
                  width: min(100%, calc((100vh - 110px) * 8.5 / 11)); }
   .docs .card.letter { max-height: 78vh; overflow-y: auto; }
+  .cover-workbench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(24rem, 1fr);
+                     gap: 1rem; align-items: start; }
+  .cover-edit { position: sticky; top: .5rem; padding: .8rem; border: 2px solid var(--line);
+                background: var(--panel); }
+  .cover-edit textarea.letter-text { min-height: 34rem; line-height: 1.55; resize: vertical; }
+  .cover-selection { margin-top: .65rem; padding-top: .65rem; border-top: 2px solid var(--line); }
+  .cover-selection .quote { display: block; max-height: 5rem; overflow: auto; padding: .45rem .6rem;
+                            border-left: 3px solid var(--purple); white-space: pre-wrap; color: var(--muted); }
+  .model-choice { position: relative; }
+  .model-choice:hover::after { content: attr(data-model); position: absolute; z-index: 5; left: 0; bottom: calc(100% + 5px);
+                               width: max-content; max-width: 24rem; padding: .3rem .45rem; border: 1px solid var(--line);
+                               background: var(--ink); color: var(--bg); font: 11px/1.3 inherit; }
+  @media (max-width: 1000px) {
+    .cover-workbench { grid-template-columns: 1fr; }
+    .cover-edit { position: static; }
+  }
 
   h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
        color: var(--muted); margin: 1.6rem 0 .5rem; font-weight: 600; }
@@ -711,11 +727,35 @@ async function show(id) {
         ${views.length > 1 ? `<span class="views">${views.map(([file, label], i) =>
           `<button class="view${i ? "" : " on"}" data-file="${file}">${label}</button>`).join("")}</span>` : ""}</h3>
         <iframe id="resumeView" src="/review/${id}/file/resume.pdf${stamp}#toolbar=0&navpanes=0&view=Fit" title="Tailored resume"></iframe></div>` : "";
+  const coverEditor = data.cover_letter ? `
+    <div class="cover-edit">
+      <strong>Edit cover letter</strong>
+      <p class="hint">Highlight text below, describe the change, then choose a model. Nothing is saved until you press Save new version.</p>
+      <textarea class="letter-text" id="coverEditText" spellcheck="true">${escape(data.cover_letter)}</textarea>
+      <div class="cover-selection" id="coverSelection" hidden>
+        <span class="quote" id="coverQuote"></span>
+        <textarea id="coverInstruction" rows="2" placeholder="How should this highlighted text change?"></textarea>
+        <div class="actions">
+          <button class="act model-choice" id="coverRewriteDefault"
+                  data-model="${escape(data.cover_models?.default || "Default model")}">Rewrite · Default</button>
+          <button class="act opus model-choice" id="coverRewriteOpus"
+                  data-model="${escape(data.cover_models?.premium || "Opus")}">Rewrite · Opus</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="act primary" id="coverSave" disabled>Save new version</button>
+        <span class="hint" id="coverEditNote">Select a passage to rewrite it.</span>
+      </div>
+    </div>` : "";
   const letterDoc = data.artifacts.includes("cover_letter.pdf")
     ? `<div><h3>Cover letter</h3>
-        <iframe src="/review/${id}/file/cover_letter.pdf${stamp}#toolbar=0&navpanes=0&view=Fit" title="Cover letter"></iframe></div>`
+        <div class="cover-workbench">
+          <iframe src="/review/${id}/file/cover_letter.pdf${stamp}#toolbar=0&navpanes=0&view=Fit" title="Cover letter"></iframe>
+          ${coverEditor}
+        </div></div>`
     : data.cover_letter
-      ? `<div><h3>Cover letter</h3><div class="card prose letter">${letter(data.cover_letter)}</div></div>`
+      ? `<div><h3>Cover letter</h3><div class="cover-workbench">
+          <div class="card prose letter">${letter(data.cover_letter)}</div>${coverEditor}</div></div>`
       : data.cover_letter_error
         ? `<div><h3>Cover letter</h3>
             <div class="card"><pre class="posting">${escape(data.cover_letter_error)}</pre>
@@ -858,6 +898,7 @@ async function show(id) {
   if ($("fillJobright")) $("fillJobright").onclick = () => fillAgain(id, "jobright_check");
   if ($("reveal")) wireReveal(id);
   if ($("askGo")) wireThread(id, data);
+  if ($("coverEditText")) wireCoverEditor(id, data);
   if ($("rememberGo")) wireRemember(id);
   if (working) setTimeout(() => { if (current === id) show(id); }, working * 1000 + 200);
 
@@ -1091,6 +1132,82 @@ function wireThread(id, data) {
   };
   box.addEventListener("input", armed);
   armed();
+}
+
+function wireCoverEditor(id, data) {
+  const area = $("coverEditText"), panel = $("coverSelection"), quote = $("coverQuote");
+  const instruction = $("coverInstruction"), note = $("coverEditNote"), save = $("coverSave");
+  const normal = $("coverRewriteDefault"), opus = $("coverRewriteOpus");
+  let selection = null;
+  let busy = false;
+
+  const capture = () => {
+    if (busy) return;
+    const start = area.selectionStart, end = area.selectionEnd;
+    if (end <= start) return;
+    selection = { start, end };
+    quote.textContent = area.value.slice(start, end);
+    panel.hidden = false;
+    note.textContent = "Describe the change, then choose Default or Opus.";
+  };
+  area.addEventListener("select", capture);
+  area.addEventListener("mouseup", capture);
+  area.addEventListener("keyup", capture);
+  area.addEventListener("input", () => {
+    save.disabled = area.value === data.cover_letter;
+  });
+
+  const rewrite = async (premium) => {
+    const request = instruction.value.trim();
+    if (!selection) { note.textContent = "Highlight the text to rewrite."; area.focus(); return; }
+    if (!request) { note.textContent = "Say how the highlighted text should change."; instruction.focus(); return; }
+    const before = area.value;
+    const selected = before.slice(selection.start, selection.end);
+    busy = true;
+    normal.disabled = opus.disabled = true;
+    note.textContent = premium ? "Opus is rewriting the selection…" : "Rewriting the selection…";
+    try {
+      const result = await api(`/review/${id}/cover/rewrite`, {
+        method: "POST",
+        body: JSON.stringify({ selected, instruction: request, premium }),
+      });
+      if (area.value !== before) throw new Error("The letter changed while the rewrite was running. Try again.");
+      area.value = before.slice(0, selection.start) + result.replacement + before.slice(selection.end);
+      const end = selection.start + result.replacement.length;
+      area.focus();
+      area.setSelectionRange(selection.start, end);
+      selection.end = end;
+      quote.textContent = result.replacement;
+      save.disabled = false;
+      note.textContent = `Rewritten with ${result.model}. Review it, then save the new version.`;
+    } catch (err) {
+      note.textContent = err.message || "Rewrite failed";
+    } finally {
+      busy = false;
+      normal.disabled = opus.disabled = false;
+    }
+  };
+  normal.onclick = () => rewrite(false);
+  opus.onclick = () => rewrite(true);
+
+  save.onclick = async () => {
+    if (save.disabled || busy) return;
+    busy = true;
+    save.disabled = true;
+    note.textContent = "Compiling the new cover letter…";
+    try {
+      await api(`/review/${id}/cover/save`, {
+        method: "POST",
+        body: JSON.stringify({ expected: data.cover_letter, text: area.value }),
+      });
+      await show(id);
+    } catch (err) {
+      note.textContent = err.message || "Save failed";
+      save.disabled = false;
+    } finally {
+      busy = false;
+    }
+  };
 }
 
 function wireReveal(id) {

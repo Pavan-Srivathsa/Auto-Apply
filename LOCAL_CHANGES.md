@@ -27,3 +27,8 @@ Intent: Rejection uses explicit dialog actions and stops that job’s active fil
 Asked: add an option to delete the job and all of its archived versions.
 Changed: `review/index.html`, `server/review.py`, `server/queue.py`, `server/thread.py`, `archive/store.py`, and review tests.
 Intent: A double-confirmed Delete stops that job’s fill, removes its queue row, every generated application folder, archive index rows, and its conversation; it refuses deletion while tailoring or document regeneration is still running.
+
+## 2026-10-12 — Rewrite highlighted cover-letter text
+Asked: make cover letters warmer, and allow highlighted passages to be changed with a chosen model whose configured name appears on hover.
+Changed: the personal cover prompt, `tailor/cover.py`, `tailor/prompts.py`, `pipeline.py`, `server/review.py`, `review/index.html`, and focused tests.
+Intent: Cover letters avoid presumptive claims about growing the business; the review page pairs the PDF with selectable text, offers Default or Opus for an instructed rewrite, previews the replacement, and saves only after a human click into a new immutable version.
