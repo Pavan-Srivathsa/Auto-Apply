@@ -193,6 +193,50 @@ def allocate(job: Job) -> Path:
     return app_dir
 
 
+def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
+                 extra_instruction: str = "", model: Optional[str] = None):
+    """Tailor and compile only the resume, returning its result and status note."""
+    base_tex = paths.BASE / "resume.tex"
+    target = base_page_count()
+    result = tailor.tailor(
+        posting,
+        page_check=make_page_check(base_tex),
+        target_pages=target,
+        extra_instruction=extra_instruction,
+        profile=tailor.load_profile(stories=stories),
+        model=model,
+    )
+    store.write(app_dir, "resume.tex", result.tex)
+    store.write(app_dir, "resume.diff", result.diff or "(no changes)\n")
+    store.write(
+        app_dir,
+        "suggestions.md",
+        f"# Tailoring rationale\n\n_Model: {result.model} "
+        f"(attempt {result.attempts})_\n\n"
+        + (f"**Fit:** {result.verdict}\n\n" if result.verdict else "")
+        + (
+            "**Length warnings:** " + "; ".join(result.warnings) + "\n\n"
+            if result.warnings
+            else ""
+        )
+        + (
+            "**Attempts rejected before this one:**\n"
+            + "\n".join(f"- {line}" for line in result.rejections) + "\n\n"
+            if result.rejections
+            else ""
+        )
+        + f"{result.suggestions}\n",
+    )
+
+    pdf = texc.compile_pdf(app_dir / "resume.tex", app_dir / "resume.pdf")
+    pages = texc.page_count(pdf)
+    write_marked(app_dir, base_tex.read_text(), result.tex)
+    note = f"{pages} page(s)"
+    if pages is not None and pages != target:
+        note += f" — master is {target}; the page-count gate did not hold"
+    return result, note
+
+
 def process(job: Job, extra_instruction: str = "", keep_status: bool = False) -> Path:
     """Fetch, tailor, compile, archive. Returns the application folder.
 
@@ -245,17 +289,10 @@ def process(job: Job, extra_instruction: str = "", keep_status: bool = False) ->
     store.write(app_dir, "posting.md", posting.to_markdown())
     write_screen(app_dir, job, posting)
 
-    base_tex = paths.BASE / "resume.tex"
-    target = base_page_count()
     stories = pick_stories(app_dir, posting)
     try:
-        result = tailor.tailor(
-            posting,
-            page_check=make_page_check(base_tex),
-            target_pages=target,
-            extra_instruction=extra_instruction,
-            profile=tailor.load_profile(stories=stories),
-            model=job.tailor_model,
+        result, note = write_resume(
+            app_dir, posting, stories, extra_instruction, model=job.tailor_model,
         )
     except tailor.Mismatch as exc:
         # A poor-fit verdict is advice, not a decision. The job still stops at
@@ -273,38 +310,6 @@ def process(job: Job, extra_instruction: str = "", keep_status: bool = False) ->
         print(f"  flagged as a poor fit, waiting on you: {exc}")
         tell_tab(job, "done", "Poor fit, says the model; decide on the review page")
         return app_dir
-
-    store.write(app_dir, "resume.tex", result.tex)
-    store.write(app_dir, "resume.diff", result.diff or "(no changes)\n")
-    store.write(
-        app_dir,
-        "suggestions.md",
-        f"# Tailoring rationale\n\n_Model: {result.model} "
-        f"(attempt {result.attempts})_\n\n"
-        + (f"**Fit:** {result.verdict}\n\n" if result.verdict else "")
-        + (
-            "**Length warnings:** " + "; ".join(result.warnings) + "\n\n"
-            if result.warnings
-            else ""
-        )
-        # What the checker sent back, so a resume that came back barely
-        # changed can be read as "the model kept hitting a rule" rather
-        # than "the model had nothing to say".
-        + (
-            "**Attempts rejected before this one:**\n"
-            + "\n".join(f"- {line}" for line in result.rejections) + "\n\n"
-            if result.rejections
-            else ""
-        )
-        + f"{result.suggestions}\n",
-    )
-
-    pdf = texc.compile_pdf(app_dir / "resume.tex", app_dir / "resume.pdf")
-    pages = texc.page_count(pdf)
-    write_marked(app_dir, base_tex.read_text(), result.tex)
-    note = f"{pages} page(s)"
-    if pages is not None and pages != target:
-        note += f" — master is {target}; the page-count gate did not hold"
 
     note += "; " + write_cover_letter(app_dir, posting, result.tex, extra_instruction, stories,
                                       model=job.tailor_model)
@@ -435,6 +440,82 @@ def write_cover_letter(app_dir: Path, posting, resume_tex: str, extra_instructio
         print(f"  cover letter failed: {detail.splitlines()[0]}", file=sys.stderr)
         return "no cover letter (see cover_letter_error.txt)"
     return f"cover letter {letter.words} words"
+
+
+REGENERATE_TARGETS = {"resume", "cover"}
+
+
+def _archived_posting(app_dir: Path, job: Job) -> fetch.Posting:
+    """Rebuild the model input from the posting already archived for this job."""
+    path = app_dir / "posting.md"
+    if not path.exists():
+        raise FileNotFoundError(f"{path.name} is missing")
+    saved = path.read_text(errors="replace")
+    marker = "\n---\n"
+    text = saved.split(marker, 1)[1].strip() if marker in saved else saved
+    return fetch.Posting(url=job.url, text=text, title=job.title, company=job.company)
+
+
+def _carry(source: Path, destination: Path, names: list[str]) -> None:
+    """Copy immutable artifacts into a new archive version."""
+    for name in names:
+        path = source / name
+        if path.is_file():
+            store.write(destination, name, path.read_bytes())
+
+
+def regenerate(job: Job, instruction: str, target: str) -> Path:
+    """Regenerate one document while carrying the other into a new version.
+
+    The current archive remains untouched. The queue points at the new folder
+    only after the requested document succeeds, and the job keeps its current
+    status, so regenerating cannot approve, fill, submit, or reopen anything.
+    """
+    if target not in REGENERATE_TARGETS:
+        raise ValueError(f"no such regeneration target {target!r}")
+    current = queue.get(job.id) or job
+    if not current.app_dir:
+        raise FileNotFoundError("this job has no application folder")
+    source = Path(current.app_dir)
+    if not source.exists():
+        raise FileNotFoundError(f"application folder {source.name} is gone")
+
+    posting = _archived_posting(source, current)
+    stories = profile.read_used(source)
+    app_dir = store.create(current)
+    store.set_status(app_dir, Status.TAILORING, f"regenerating {target}")
+    _carry(source, app_dir, ["posting.md", "screen.json", "screen_error.txt"])
+    store.write(app_dir, "stories_used.txt", "\n".join(stories) + ("\n" if stories else ""))
+
+    try:
+        if target == "resume":
+            _, note = write_resume(
+                app_dir, posting, stories, instruction, model=current.tailor_model,
+            )
+            _carry(source, app_dir, [
+                "cover_letter.md", "cover_letter.tex", "cover_letter.pdf",
+                "cover_letter_error.txt",
+            ])
+        else:
+            _carry(source, app_dir, [
+                "resume.tex", "resume.pdf", "resume.diff", "suggestions.md",
+                "resume_changes.tex", "resume_changes.pdf",
+                "resume_both.tex", "resume_both.pdf", "mismatch.md",
+            ])
+            resume_tex = (source / "resume.tex").read_text()
+            note = write_cover_letter(
+                app_dir, posting, resume_tex, instruction, stories, model=current.tailor_model,
+            )
+            if not (app_dir / "cover_letter.md").exists():
+                detail = (app_dir / "cover_letter_error.txt").read_text(errors="replace").strip()
+                raise cover.CoverLetterError(detail or "cover letter regeneration failed")
+    except Exception as exc:
+        store.set_status(app_dir, Status.FAILED, f"{type(exc).__name__}: {exc}")
+        raise
+
+    store.set_status(app_dir, current.status, f"regenerated {target}; {note}")
+    queue.update(current.id, app_dir=str(app_dir), status=current.status, error=None)
+    return app_dir
 
 
 def process_safely(job: Job) -> bool:

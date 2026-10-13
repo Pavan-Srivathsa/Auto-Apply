@@ -476,8 +476,8 @@
     <label for="note">Anything else (optional)</label>
     <textarea id="note" placeholder="e.g. wants 8 years, posting says onsite only"></textarea>
     <div class="actions" style="justify-content:flex-end;margin-bottom:0">
-      <button class="act" value="cancel" formnovalidate>Cancel</button>
-      <button class="act danger" id="confirmReject" value="reject">Reject</button>
+      <button class="act" type="button" id="cancelReject">Cancel</button>
+      <button class="act danger" type="submit" id="confirmReject">Reject</button>
     </div>
   </form>
 </dialog>
@@ -769,12 +769,14 @@ async function show(id) {
         <div class="turns" id="threadTurns">${turns(data.thread || [])}</div>
         ${data.questions && data.questions.length ? `<div class="hint">Still empty on the form, tap one:</div>
           <div class="qs">${data.questions.map((q) => `<button class="act small q">${escape(q)}</button>`).join("")}</div>` : ""}
-        <textarea id="askQ" placeholder="Paste a screener question, or say what to change — 'lead with the agent work', 'shorter summary'."></textarea>
+        <textarea id="askQ" placeholder="Ask a question, or describe a document change — 'lead with the agent work', 'make the opening more specific'."></textarea>
         <div class="row"><button class="act primary" id="askGo">Answer it</button>
-          <button class="act" id="changeGo">Re-tailor with this</button>
-          <button class="act opus" id="opusGo" title="Re-tailor with the expensive model: it rewrites far more of the resume, and costs about eight times as much.">Re-tailor with Opus</button>
+          <button class="act" id="resumeGo">Regenerate resume</button>
+          <button class="act" id="coverGo">Regenerate cover letter</button>
+          <button class="act" id="changeGo">Regenerate both</button>
+          <button class="act opus" id="opusGo" title="Regenerate both with the expensive model: it rewrites far more of the resume, and costs about eight times as much.">Both with Opus</button>
           <span class="hint" id="askNote">The posting, the tailored resume, the letter, your profile and this thread are already in it.
-            A re-tailor writes new documents and leaves the job where it stands.</span></div>
+            Add an instruction or regenerate one document as-is. The job stays where it stands.</span></div>
       </div>` : ""}
 
     ${data.answers ? `<h3>${logo()} Free-form answers, written by the assistant</h3>
@@ -973,11 +975,13 @@ function turns(list) {
     const mine = turn.kind === "question" || turn.kind === "change";
     const bad = turn.kind === "error" || turn.state === "error";
     const running = turn.state === "running";
-    const who = turn.kind === "change" ? "You, asking for a change"
+    const target = turn.target === "resume" ? "resume"
+      : turn.target === "cover" ? "cover letter" : "resume and cover letter";
+    const who = turn.kind === "change" ? `You, regenerating the ${target}`
       : turn.kind === "question" ? "You"
-      : turn.kind === "result" ? (running ? "Re-tailoring…" : "Re-tailored")
+      : turn.kind === "result" ? (running ? `Regenerating ${target}…` : `Regenerated ${target}`)
       : bad ? "Failed" : "Autopilot";
-    const body = running ? "The resume and the letter are being written again. This takes a minute or two."
+    const body = running ? `The ${target} ${turn.target === "both" || !turn.target ? "are" : "is"} being written again. This takes a minute or two.`
       : (turn.text || "");
     return `<div class="turn ${mine ? "you" : "bot"}${bad ? " bad" : ""}${running ? " run" : ""}">
       <div class="who">${escape(who)}${turn.model ? ` · ${escape(turn.model)}` : ""}</div>
@@ -1003,7 +1007,8 @@ function paintTurns(list) {
 
 function wireThread(id, data) {
   const box = $("askQ"), go = $("askGo"), change = $("changeGo"), note = $("askNote");
-  const opus = $("opusGo");
+  const resume = $("resumeGo"), cover = $("coverGo"), opus = $("opusGo");
+  let changing = !!data.thread_running;
   for (const b of document.querySelectorAll(".asker .q")) b.onclick = () => { box.value = b.textContent; box.focus(); armed(); };
   // A change runs in a thread on the server; the page watches the turn
   // until it is done and then re-reads the job, whose folder has changed.
@@ -1024,25 +1029,39 @@ function wireThread(id, data) {
   // the job again on the stronger model. The other two need words.
   const OPUS_ONLY = "Re-tailor this on the stronger model. No new instruction: same posting, same profile, same rules.";
 
+  const DEFAULT = {
+    resume: "Regenerate the resume from the same posting, profile, and rules. No additional changes requested.",
+    cover: "Regenerate the cover letter from the same posting, resume, profile, and rules. No additional changes requested.",
+  };
   const send = async (action, premium = false) => {
-    const text = box.value.trim() || (premium ? OPUS_ONLY : "");
+    if (changing) return;
+    const typed = box.value.trim();
+    const text = typed || (premium ? OPUS_ONLY : DEFAULT[action] || "");
     if (!text) return;
-    if (action === "change" && !confirm(`Re-tailor the resume and the letter${premium ? " on Opus" : " with this"}?\n\n` + text)) return;
-    go.disabled = change.disabled = true;
+    const target = action === "resume" ? "the resume"
+      : action === "cover" ? "the cover letter" : "both documents";
+    if (action !== "ask" && !confirm(`Regenerate ${target}${premium ? " on Opus" : ""}?\n\n` + text)) return;
+    if (action !== "ask") changing = true;
+    go.disabled = change.disabled = resume.disabled = cover.disabled = true;
     if (opus) opus.disabled = true;
-    note.textContent = action === "change" ? (premium ? "Re-tailoring on Opus…" : "Re-tailoring…") : "Writing…";
+    note.textContent = action === "ask" ? "Writing…"
+      : premium ? "Regenerating both on Opus…" : `Regenerating ${target}…`;
     try {
       const r = await api(`/review/${id}/thread`, { method: "POST", body: JSON.stringify({ text, action, premium }) });
       box.value = "";
       paintTurns(r.turns || []);
-      note.textContent = action === "change" ? "Re-tailoring; the documents above change when it lands." : "Kept on file.";
+      note.textContent = action === "ask" ? "Kept on file."
+        : `Regenerating ${target}; the document above changes when it lands.`;
       if (r.running) poll(id);
     } catch (err) {
+      if (action !== "ask") changing = false;
       note.textContent = err.message || "Failed";
     } finally { armed(); }
   };
 
   go.onclick = () => send("ask");
+  resume.onclick = () => send("resume");
+  cover.onclick = () => send("cover");
   change.onclick = () => send("change");
   if (opus) opus.onclick = () => send("change", true);
   box.onkeydown = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send("ask"); };
@@ -1051,11 +1070,18 @@ function wireThread(id, data) {
   // button (three times, 2026-09-24). The buttons now say so themselves.
   const armed = () => {
     const empty = !box.value.trim();
-    go.disabled = change.disabled = empty;
+    go.disabled = changing || empty;
+    change.disabled = changing || empty;
+    resume.disabled = cover.disabled = changing;
     go.title = change.title = empty ? "Say what to change or ask first" : "";
-    if (opus) opus.title = empty
-      ? "Run this job again on the stronger model, with no new instruction"
-      : "Re-tailor with the stronger model and this instruction";
+    resume.title = empty ? "Regenerate the resume with the same inputs and rules" : "Regenerate only the resume with this instruction";
+    cover.title = empty ? "Regenerate the cover letter with the same inputs and rules" : "Regenerate only the cover letter with this instruction";
+    if (opus) {
+      opus.disabled = changing;
+      opus.title = empty
+        ? "Run this job again on the stronger model, with no new instruction"
+        : "Re-tailor with the stronger model and this instruction";
+    }
   };
   box.addEventListener("input", armed);
   armed();
@@ -1105,11 +1131,12 @@ function openReject(id) {
   const dialog = $("rejectDialog");
   dialog.returnValue = "";
   dialog.showModal();
+  $("cancelReject").onclick = () => dialog.close("cancel");
   $("rejectForm").onsubmit = (event) => {
-    if (event.submitter?.value !== "reject") return;
+    event.preventDefault();
     const body = JSON.stringify({ reason: select.value, note: $("note").value.trim() || null });
-    dialog.close();
-    act(id, () => api(`/review/${id}/reject`, { method: "POST", body }));
+    dialog.close("reject");
+    void act(id, () => api(`/review/${id}/reject`, { method: "POST", body }));
   };
 }
 

@@ -90,7 +90,7 @@ class ThreadMessage(BaseModel):
     job where it stands and only writes new documents."""
 
     text: str
-    action: str = "ask"          # ask | change
+    action: str = "ask"          # ask | change | resume | cover
     keep_status: bool = True
     # A change asked for on the expensive model. The choice sticks to the
     # row, so the job stays an Opus job for anything it is re-tailored with
@@ -212,19 +212,25 @@ def say(job_id: str, body: ThreadMessage) -> dict:
     text = body.text.strip()
     if not text:
         raise HTTPException(400, "the message is empty")
-    if body.action not in ("ask", "change"):
+    if body.action not in ("ask", "change", "resume", "cover"):
         raise HTTPException(422, f"no such action {body.action!r}")
 
-    if body.action == "change":
-        from pipeline import retailor  # lazy: pipeline imports the server package
+    if body.action in ("change", "resume", "cover"):
+        # Lazy imports: pipeline imports the server package.
+        from pipeline import regenerate, retailor
 
         if body.premium:
             model = llm.premium_model()
             if job.tailor_model != model:
                 job = queue.update(job.id, tailor_model=model) or job
+        target = "both" if body.action == "change" else body.action
+        run = (
+            (lambda: retailor(job, text, keep_status=body.keep_status).name)
+            if target == "both"
+            else (lambda: regenerate(job, text, target).name)
+        )
         try:
-            job_thread.start_change(job_id, text,
-                                    lambda: retailor(job, text, keep_status=body.keep_status).name)
+            job_thread.start_change(job_id, text, run, target=target)
         except job_thread.ThreadError as exc:
             raise HTTPException(409, str(exc))
         return {"id": job_id, "turns": job_thread.load(job_id), "running": True}
@@ -472,9 +478,10 @@ def reject(job_id: str, rejection: Rejection) -> dict:
     rejection with no reason tells you nothing three weeks later. The folder
     is kept intact as the record of what was tried.
     """
-    _, app_dir = _job_and_dir(job_id)
+    job, app_dir = _job_and_dir(job_id)
     label = REJECT_LABELS[rejection.reason]
     detail = f"{label}: {rejection.note}" if rejection.note else label
+    stopped = runner.stop_fill(job_id) if job.status == Status.FILLING else None
 
     store.set_status(app_dir, Status.SKIPPED, detail)
     store.write_or_append(app_dir, "rejection.md", f"# Rejected\n\n**{label}**\n\n"
@@ -485,7 +492,12 @@ def reject(job_id: str, rejection: Rejection) -> dict:
         reject_reason=rejection.reason,
         reject_note=rejection.note,
     )
-    return {"id": job_id, "status": Status.SKIPPED.value, "reason": label}
+    return {
+        "id": job_id,
+        "status": Status.SKIPPED.value,
+        "reason": label,
+        "stopped_fill": stopped,
+    }
 
 
 @router.get("/meta/reject-reasons")

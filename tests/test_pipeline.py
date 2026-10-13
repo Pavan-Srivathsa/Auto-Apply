@@ -290,6 +290,59 @@ def test_a_kept_status_retailor_writes_documents_and_moves_nothing(monkeypatch):
     assert launched == []
 
 
+def test_regenerating_only_the_cover_letter_keeps_the_resume_and_status(monkeypatch):
+    stub_success(monkeypatch)
+    job, _ = queue.add(Job(url="https://example.com/jobs/cover", title="Backend Engineer"))
+    first = pipeline.process(job)
+    old_resume = (first / "resume.tex").read_bytes()
+    queue.update(job.id, status=Status.FILLED)
+    seen = {}
+
+    def letter(posting, tex, profile="", extra_instruction="", model=None):
+        seen["instruction"] = extra_instruction
+        return CoverLetter("Dear Hiring Manager,\n\nNew letter.\n\nBest,\nJane Doe", model or "test/model")
+
+    monkeypatch.setattr(pipeline.cover, "write", letter)
+    second = pipeline.regenerate(queue.get(job.id), "focus on reliability", "cover")
+
+    assert second != first
+    assert (second / "resume.tex").read_bytes() == old_resume
+    assert "New letter" in (second / "cover_letter.md").read_text()
+    assert seen["instruction"] == "focus on reliability"
+    assert queue.get(job.id).status is Status.FILLED
+    assert queue.get(job.id).app_dir == str(second)
+
+
+def test_regenerating_only_the_resume_keeps_the_cover_letter_and_status(monkeypatch):
+    stub_success(monkeypatch)
+    job, _ = queue.add(Job(url="https://example.com/jobs/resume", title="Backend Engineer"))
+    first = pipeline.process(job)
+    old_letter = (first / "cover_letter.md").read_bytes()
+    queue.update(job.id, status=Status.FILLED)
+    seen = {}
+
+    def tailored(posting, **kwargs):
+        seen["instruction"] = kwargs["extra_instruction"]
+        return TailorResult(
+            tex="\\documentclass{article}\\begin{document}new resume\\end{document}",
+            suggestions="- emphasized reliability", diff="+new resume", model="test/model",
+        )
+
+    monkeypatch.setattr(pipeline.tailor, "tailor", tailored)
+    monkeypatch.setattr(
+        pipeline.cover, "write",
+        lambda *a, **k: pytest.fail("resume-only regeneration must not rewrite the letter"),
+    )
+    second = pipeline.regenerate(queue.get(job.id), "focus on reliability", "resume")
+
+    assert second != first
+    assert "new resume" in (second / "resume.tex").read_text()
+    assert (second / "cover_letter.md").read_bytes() == old_letter
+    assert seen["instruction"] == "focus on reliability"
+    assert queue.get(job.id).status is Status.FILLED
+    assert queue.get(job.id).app_dir == str(second)
+
+
 def test_the_jobs_model_reaches_the_resume_and_the_letter(monkeypatch):
     """"Use Opus" is a per-job choice, so both documents a human reads are
     written with it; everything else stays on the cheap default."""

@@ -139,21 +139,25 @@ def history(job_id: str) -> str:
     return "\n".join(reversed(lines))
 
 
-def start_change(job_id: str, instruction: str, run) -> dict:
+def start_change(job_id: str, instruction: str, run, target: str = "both") -> dict:
     """The `change` turn plus a `result` turn kept at `running` while the
     re-tailor works. `run()` is called off the request thread and returns
     the new folder's name."""
     if running(job_id):
         raise ThreadError("a re-tailor is already running for this job")
-    add(job_id, "change", instruction)
-    result = add(job_id, "result", "", state="running")
+    add(job_id, "change", instruction, target=target)
+    result = add(job_id, "result", "", state="running", target=target)
     _running[job_id] = result["id"]
 
     def work() -> None:
         try:
             folder = run()
+            label = {
+                "resume": "Regenerated the resume.",
+                "cover": "Regenerated the cover letter.",
+            }.get(target, "Re-tailored the resume and the cover letter.")
             set_fields(job_id, result["id"], state="done", folder=str(folder),
-                       text="Re-tailored. The resume and the letter above are the new ones.")
+                       text=label)
             # A request the person keeps making on every job belongs in the
             # prompts; the Workshop proposes it once enough have piled up.
             from tailor import workshop

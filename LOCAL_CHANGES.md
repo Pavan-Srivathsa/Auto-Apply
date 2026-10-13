@@ -17,3 +17,8 @@ Intent: Once any automation works on an application form, the full Autopilot bar
 Asked: replace generic cover letters with a detailed personalization, evidence, company-fit, and quality-control prompt.
 Changed: the personal `cover` and `cover.format` prompt overrides, `tailor/cover.py`, and `tests/test_cover.py`.
 Intent: Letters now make one role-specific technical argument in 250–350 words, use only supported facts and posting-provided company details, and close with the requested “Best,” sign-off.
+
+## 2026-10-12 — Repair rejection and regenerate one document
+Asked: fix the Reject/Cancel controls and allow the resume or cover letter to be regenerated with a specific change prompt.
+Changed: `review/index.html`, `server/review.py`, `server/thread.py`, `pipeline.py`, and focused tests.
+Intent: Rejection uses explicit dialog actions and stops that job’s active fill, while the thread can regenerate only the resume, only the cover letter, or both; each request accepts optional guidance, writes a new immutable version, and preserves the job’s status and untouched document.

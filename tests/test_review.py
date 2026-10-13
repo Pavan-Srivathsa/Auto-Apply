@@ -1,5 +1,7 @@
 """Checkpoint 1 API: artifact serving and the approve/reject gate."""
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -328,6 +330,20 @@ def test_rejecting_never_starts_the_fill(client, monkeypatch):
     monkeypatch.setattr(runner, "start_fill",
                         lambda jid: pytest.fail("a rejected job must not be filled"))
     client.post(f"/review/{job_id}/reject", json={"reason": "poor_fit"})
+    assert queue.get(job_id).status == Status.SKIPPED
+
+
+def test_rejecting_a_filling_job_stops_its_fill(client, monkeypatch):
+    job_id, _ = reviewable_job()
+    queue.update(job_id, status=Status.FILLING)
+    stopped = []
+    monkeypatch.setattr(runner, "stop_fill", lambda jid: stopped.append(jid) or 4321)
+
+    response = client.post(f"/review/{job_id}/reject", json={"reason": "changed_my_mind"})
+
+    assert response.status_code == 200
+    assert response.json()["stopped_fill"] == 4321
+    assert stopped == [job_id]
     assert queue.get(job_id).status == Status.SKIPPED
 
 
@@ -770,6 +786,39 @@ def test_a_change_in_the_thread_retailors_and_leaves_the_job_alone(client, monke
     assert queue.get(job_id).status is Status.FILLED
 
 
+def test_the_thread_can_regenerate_either_document(client, monkeypatch):
+    import time
+    job_id, app_dir = reviewable_job()
+    seen = []
+
+    def fake_regenerate(job, instruction, target):
+        seen.append((instruction, target))
+        return app_dir.parent / f"{target}-folder"
+
+    import pipeline
+    monkeypatch.setattr(pipeline, "regenerate", fake_regenerate)
+
+    for target in ("resume", "cover"):
+        r = client.post(
+            f"/review/{job_id}/thread",
+            json={"text": f"change only the {target}", "action": target},
+        )
+        assert r.status_code == 200 and r.json()["running"] is True
+        for _ in range(100):
+            state = client.get(f"/review/{job_id}/thread").json()
+            if not state["running"]:
+                break
+            time.sleep(0.05)
+
+    assert seen == [
+        ("change only the resume", "resume"),
+        ("change only the cover", "cover"),
+    ]
+    results = [turn for turn in state["turns"] if turn["kind"] == "result"]
+    assert [turn["target"] for turn in results] == ["resume", "cover"]
+    assert results[-1]["text"] == "Regenerated the cover letter."
+
+
 def test_a_change_on_opus_marks_the_row_before_it_runs(client, monkeypatch):
     """"Re-tailor with Opus" is the same decision the banner's button makes:
     it sticks to the row, so the job stays an Opus job afterwards."""
@@ -794,6 +843,14 @@ def test_a_change_on_opus_marks_the_row_before_it_runs(client, monkeypatch):
         time.sleep(0.05)
     assert models == ["expensive/model"], "the re-tailor ran on the model the button names"
     assert queue.get(job_id).tailor_model == "expensive/model"
+
+
+def test_review_page_has_explicit_reject_and_document_regeneration_controls():
+    page = (Path(__file__).parents[1] / "review" / "index.html").read_text()
+    assert 'type="button" id="cancelReject"' in page
+    assert '$("cancelReject").onclick' in page
+    assert 'id="resumeGo">Regenerate resume' in page
+    assert 'id="coverGo">Regenerate cover letter' in page
 
 
 def test_reveal_names_the_files_and_shows_them_in_finder(client, monkeypatch):
