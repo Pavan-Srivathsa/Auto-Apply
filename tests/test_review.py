@@ -347,6 +347,55 @@ def test_rejecting_a_filling_job_stops_its_fill(client, monkeypatch):
     assert queue.get(job_id).status == Status.SKIPPED
 
 
+def test_permanent_delete_removes_every_version_queue_row_and_thread(client, monkeypatch):
+    from server import thread as job_thread
+
+    job_id, first = reviewable_job()
+    job = queue.get(job_id)
+    second = store.create(job)
+    store.write(second, "resume.pdf", b"%PDF-1.5 second")
+    job_thread.add(job_id, "question", "Keep this?")
+    queue.update(job_id, status=Status.FILLING, app_dir=str(second))
+    monkeypatch.setattr(runner, "stop_fill", lambda jid: 7654 if jid == job_id else None)
+
+    response = client.delete(f"/review/{job_id}")
+
+    assert response.status_code == 200
+    assert response.json()["stopped_fill"] == 7654
+    assert sorted(response.json()["folders"]) == sorted([first.name, second.name])
+    assert queue.get(job_id) is None
+    assert not first.exists() and not second.exists()
+    assert not job_thread.path_for(job_id).exists()
+    assert job_id not in store.INDEX_PATH.read_text()
+
+
+def test_permanent_delete_also_removes_an_unprocessed_queue_row(client, monkeypatch):
+    job, _ = queue.add(Job(url="https://example.com/jobs/queued"))
+    monkeypatch.setattr(runner, "stop_fill", lambda jid: None)
+
+    response = client.delete(f"/review/{job.id}")
+
+    assert response.status_code == 200
+    assert response.json()["folders"] == []
+    assert queue.get(job.id) is None
+
+
+def test_permanent_delete_waits_for_active_document_regeneration(client, monkeypatch):
+    from server import thread as job_thread
+
+    job_id, app_dir = reviewable_job()
+    monkeypatch.setattr(job_thread, "running", lambda jid: jid == job_id)
+    monkeypatch.setattr(
+        runner, "stop_fill",
+        lambda jid: pytest.fail("nothing is deleted while regeneration is running"),
+    )
+
+    response = client.delete(f"/review/{job_id}")
+
+    assert response.status_code == 409
+    assert queue.get(job_id) is not None and app_dir.exists()
+
+
 def test_fill_now_requires_an_approved_job(client, monkeypatch):
     monkeypatch.setattr(runner, "launch", lambda script, jid, **kwargs: 77)
     job_id, _ = reviewable_job()
@@ -851,6 +900,8 @@ def test_review_page_has_explicit_reject_and_document_regeneration_controls():
     assert '$("cancelReject").onclick' in page
     assert 'id="resumeGo">Regenerate resume' in page
     assert 'id="coverGo">Regenerate cover letter' in page
+    assert 'id="deleteJob">Delete' in page
+    assert 'Type DELETE to confirm permanent deletion.' in page
 
 
 def test_reveal_names_the_files_and_shows_them_in_finder(client, monkeypatch):

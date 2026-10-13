@@ -106,6 +106,18 @@ def update(job_id: str, **fields) -> Optional[Job]:
         return None
 
 
+def remove(job_id: str) -> Optional[Job]:
+    """Permanently remove one queue row. Returns what was removed."""
+    with _locked():
+        jobs = _read_unlocked()
+        for index, job in enumerate(jobs):
+            if job.id == job_id:
+                removed = jobs.pop(index)
+                _write_unlocked(jobs)
+                return removed
+        return None
+
+
 def pending() -> list[Job]:
     """Jobs the pipeline has not started yet, oldest first."""
     return [j for j in all_jobs() if j.status == Status.QUEUED]

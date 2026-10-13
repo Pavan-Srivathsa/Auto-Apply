@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -108,6 +109,38 @@ def read_status(app_dir: Path) -> Optional[str]:
     if not path.exists():
         return None
     return json.loads(path.read_text()).get("status")
+
+
+def delete_job(job_id: str) -> list[str]:
+    """Permanently delete every archived version belonging to one job.
+
+    This is intentionally separate from normal lifecycle transitions. Archive
+    folders are immutable until the human explicitly uses the permanent Delete
+    action; no pipeline or status change calls this function.
+    """
+    removed: list[str] = []
+    root = APPLICATIONS.resolve()
+    if APPLICATIONS.exists():
+        for record in APPLICATIONS.rglob("job.json"):
+            try:
+                data = json.loads(record.read_text())
+            except (OSError, ValueError):
+                continue
+            folder = record.parent.resolve()
+            if data.get("id") != job_id or folder == root or not folder.is_relative_to(root):
+                continue
+            relative = str(folder.relative_to(root))
+            shutil.rmtree(folder)
+            removed.append(relative)
+
+    if INDEX_PATH.exists():
+        rows = list(csv.DictReader(INDEX_PATH.open()))
+        kept = [row for row in rows if row.get("job_id") != job_id]
+        with open(INDEX_PATH, "w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=INDEX_FIELDS)
+            writer.writeheader()
+            writer.writerows(kept)
+    return sorted(removed)
 
 
 def _append_index(app_dir: Path, job: Job) -> None:

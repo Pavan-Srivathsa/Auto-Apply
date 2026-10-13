@@ -22,3 +22,8 @@ Intent: Letters now make one role-specific technical argument in 250–350 words
 Asked: fix the Reject/Cancel controls and allow the resume or cover letter to be regenerated with a specific change prompt.
 Changed: `review/index.html`, `server/review.py`, `server/thread.py`, `pipeline.py`, and focused tests.
 Intent: Rejection uses explicit dialog actions and stops that job’s active fill, while the thread can regenerate only the resume, only the cover letter, or both; each request accepts optional guidance, writes a new immutable version, and preserves the job’s status and untouched document.
+
+## 2026-10-12 — Permanently delete a job
+Asked: add an option to delete the job and all of its archived versions.
+Changed: `review/index.html`, `server/review.py`, `server/queue.py`, `server/thread.py`, `archive/store.py`, and review tests.
+Intent: A double-confirmed Delete stops that job’s fill, removes its queue row, every generated application folder, archive index rows, and its conversation; it refuses deletion while tailoring or document regeneration is still running.

@@ -123,6 +123,13 @@ def running(job_id: str) -> bool:
     return job_id in _running
 
 
+def delete(job_id: str) -> None:
+    """Delete the conversation for a job that is being permanently removed."""
+    if running(job_id):
+        raise ThreadError("document regeneration is still running for this job")
+    path_for(job_id).unlink(missing_ok=True)
+
+
 def history(job_id: str) -> str:
     """The recent turns as plain text, for the model's context. Trimmed
     from the end: the last thing said matters most."""

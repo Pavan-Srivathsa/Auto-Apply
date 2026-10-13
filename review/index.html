@@ -683,7 +683,9 @@ async function show(id) {
   try {
     data = await api(`/review/${id}`);
   } catch (err) {
-    $("detail").innerHTML = `${head(job)}<div class="banner stop">${escape(err.message)}</div>`;
+    $("detail").innerHTML = `${head(job)}<div class="banner stop">${escape(err.message)}</div>
+      <div class="actions"><button class="act danger" id="deleteJob">Delete permanently…</button></div>`;
+    $("deleteJob").onclick = () => deleteJob(id);
     return;
   }
 
@@ -739,6 +741,7 @@ async function show(id) {
              <button class="act primary" id="fillJobright">Jobright + check</button>` : ""}
         ${data.status !== "skipped" && data.status !== "submitted"
           ? `<button class="act danger" id="reject">Reject…</button>` : ""}
+        <button class="act danger" id="deleteJob">Delete permanently…</button>
       </div>` : ""}
 
     ${resumeDoc || letterDoc ? `
@@ -818,12 +821,14 @@ async function show(id) {
         </div>
         <div class="decide">
           <button class="small danger act" id="reject">Reject</button>
+          <button class="small danger act" id="deleteJob">Delete…</button>
           <button class="big act" id="approve">Approve</button>
         </div>
       </div>` : ""}
     ${filled ? `
       <div class="fab">
         <button class="small danger act" id="reject">Reject</button>
+        <button class="small danger act" id="deleteJob">Delete…</button>
         <button class="small act" id="fillNow">Fill again</button>
         <button class="big act" id="submitted">I submitted it</button>
       </div>` : ""}
@@ -831,6 +836,7 @@ async function show(id) {
 
   if ($("approve")) $("approve").onclick = () => approve(id);
   if ($("reject")) $("reject").onclick = () => openReject(id);
+  if ($("deleteJob")) $("deleteJob").onclick = () => deleteJob(id);
   if ($("submitted")) $("submitted").onclick = () => markSubmitted(id);
   if ($("revise")) $("revise").onclick = () => revise(id);
   // The note box: one line until it is touched, then room to write, and
@@ -1138,6 +1144,23 @@ function openReject(id) {
     dialog.close("reject");
     void act(id, () => api(`/review/${id}/reject`, { method: "POST", body }));
   };
+}
+
+async function deleteJob(id) {
+  const job = jobs.find((row) => row.id === id);
+  const name = job?.company || job?.title || id;
+  if (!confirm(`Permanently delete ${name}, every generated version, and its history?\n\nThis cannot be undone.`)) return;
+  if (prompt('Type DELETE to confirm permanent deletion.') !== "DELETE") return;
+  for (const button of document.querySelectorAll("button.act")) button.disabled = true;
+  try {
+    await api(`/review/${id}`, { method: "DELETE" });
+    current = null;
+    history.replaceState(null, "", location.pathname + location.search);
+    await loadList();
+  } catch (err) {
+    alert(err.message || "Delete failed");
+    await show(id);
+  }
 }
 
 async function revise(id) {

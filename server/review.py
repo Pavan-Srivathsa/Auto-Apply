@@ -500,6 +500,29 @@ def reject(job_id: str, rejection: Rejection) -> dict:
     }
 
 
+@router.delete("/{job_id}")
+def delete_job(job_id: str) -> dict:
+    """Permanently remove a job, every archive version, and its thread."""
+    job = queue.get(job_id)
+    if job is None:
+        raise HTTPException(404, "unknown job")
+    if job.status == Status.TAILORING:
+        raise HTTPException(409, "this job is still tailoring; wait for it to finish before deleting")
+    if job_thread.running(job_id):
+        raise HTTPException(409, "document regeneration is still running; wait for it to finish before deleting")
+
+    stopped = runner.stop_fill(job_id)
+    folders = store.delete_job(job_id)
+    job_thread.delete(job_id)
+    queue.remove(job_id)
+    return {
+        "id": job_id,
+        "deleted": True,
+        "folders": folders,
+        "stopped_fill": stopped,
+    }
+
+
 @router.get("/meta/reject-reasons")
 def reject_reasons() -> list[dict]:
     """The reason list the review page offers."""
