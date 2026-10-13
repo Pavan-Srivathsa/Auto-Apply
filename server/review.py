@@ -109,6 +109,17 @@ class CoverSave(BaseModel):
     text: str
 
 
+class ResumeRewrite(BaseModel):
+    selected: str
+    instruction: str
+    premium: bool = False
+
+
+class ResumeSave(BaseModel):
+    expected: str
+    text: str
+
+
 def _job_and_dir(job_id: str) -> tuple[Job, Path]:
     job = queue.get(job_id)
     if job is None:
@@ -145,8 +156,13 @@ def detail(job_id: str) -> dict:
         "mismatch": read("mismatch.md"),
         "screen": _screen(app_dir),
         "screen_error": read("screen_error.txt"),
+        "resume_source": read("resume.tex"),
         "cover_letter": read("cover_letter.md"),
         "cover_letter_error": read("cover_letter_error.txt"),
+        "resume_models": {
+            "default": job.tailor_model or llm.tailor_model(),
+            "premium": llm.premium_model(),
+        },
         "cover_models": {
             "default": job.tailor_model or llm.tailor_model(),
             "premium": llm.premium_model(),
@@ -294,6 +310,62 @@ def rewrite_cover_selection(job_id: str, body: CoverRewrite) -> dict:
     except cover.CoverLetterError as exc:
         raise HTTPException(502, str(exc))
     return {"id": job_id, "replacement": replacement, "model": model}
+
+
+@router.post("/{job_id}/resume/rewrite")
+def rewrite_resume_selection(job_id: str, body: ResumeRewrite) -> dict:
+    """Rewrite highlighted resume source without saving it yet."""
+    job, app_dir = _job_and_dir(job_id)
+    resume_path = app_dir / "resume.tex"
+    if not resume_path.exists():
+        raise HTTPException(409, "this job does not have an editable resume")
+    resume_tex = resume_path.read_text(errors="replace")
+    selected = body.selected
+    if not selected.strip() or selected not in resume_tex:
+        raise HTTPException(409, "the highlighted text is stale; select it again")
+    if not body.instruction.strip():
+        raise HTTPException(400, "say how the highlighted resume text should change")
+
+    context = answers.Context.from_app_dir(
+        app_dir,
+        profile=tailor.load_profile(stories=profile.read_used(app_dir)),
+        applicant=profile.applicant_facts() or "",
+    )
+    posting = fetch.Posting(
+        url=job.url, text=context.posting, title=job.title, company=job.company,
+    )
+    model = llm.premium_model() if body.premium else (job.tailor_model or llm.tailor_model())
+    try:
+        replacement = tailor.rewrite_selection(
+            posting, resume_tex, selected, body.instruction,
+            profile=context.profile, model=model,
+        )
+    except tailor.TailorError as exc:
+        raise HTTPException(502, str(exc))
+    return {"id": job_id, "replacement": replacement, "model": model}
+
+
+@router.post("/{job_id}/resume/save")
+def save_resume_edit(job_id: str, body: ResumeSave) -> dict:
+    """Validate, compile, and archive a reviewed resume source edit."""
+    from pipeline import save_resume  # lazy: pipeline imports the server package
+    from tex.compile import CompileError
+
+    job, app_dir = _job_and_dir(job_id)
+    current = (app_dir / "resume.tex").read_text(errors="replace") if (
+        app_dir / "resume.tex"
+    ).exists() else ""
+    if body.expected != current:
+        raise HTTPException(409, "the resume changed; reload before saving this edit")
+    try:
+        new_dir = save_resume(job, body.text)
+    except (tailor.TailorError, CompileError) as exc:
+        raise HTTPException(422, str(exc))
+    return {
+        "id": job_id,
+        "folder": new_dir.name,
+        "status": (queue.get(job_id) or job).status.value,
+    }
 
 
 @router.post("/{job_id}/cover/save")

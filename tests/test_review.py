@@ -146,6 +146,77 @@ def test_reviewed_cover_edit_is_saved_as_a_new_version(client, monkeypatch):
     assert stale.status_code == 409
 
 
+def test_highlighted_resume_text_can_be_rewritten_with_default_or_opus(client, monkeypatch):
+    from server import review as review_module
+
+    job_id, app_dir = reviewable_job()
+    original = (
+        "\\documentclass{article}\\begin{document}\n"
+        "Built a scalable Python API for 50K daily requests.\n"
+        "\\end{document}\n"
+    )
+    store.write(app_dir, "posting.md", "# Backend Engineer\n\nBuild reliable APIs.")
+    store.write(app_dir, "resume.tex", original)
+    monkeypatch.setattr(review_module.llm, "tailor_model", lambda: "default/model")
+    monkeypatch.setattr(review_module.llm, "premium_model", lambda: "premium/model")
+    monkeypatch.setattr(review_module.tailor, "load_profile", lambda stories=None: "profile")
+    monkeypatch.setattr(review_module.profile, "applicant_facts", lambda: "")
+    seen = []
+
+    def rewrite(posting, resume_tex, selected, instruction, profile="", model=None):
+        seen.append((selected, instruction, model))
+        return "Built a reliable Python API for 50K daily requests."
+
+    monkeypatch.setattr(review_module.tailor, "rewrite_selection", rewrite)
+    body = {
+        "selected": "Built a scalable Python API for 50K daily requests.",
+        "instruction": "Emphasize reliability.",
+    }
+    default = client.post(f"/review/{job_id}/resume/rewrite", json=body)
+    premium = client.post(f"/review/{job_id}/resume/rewrite", json=body | {"premium": True})
+    detail = client.get(f"/review/{job_id}").json()
+
+    assert default.status_code == premium.status_code == 200
+    assert default.json()["model"] == "default/model"
+    assert premium.json()["model"] == "premium/model"
+    assert detail["resume_source"] == original
+    assert detail["resume_models"] == {
+        "default": "default/model", "premium": "premium/model",
+    }
+    assert seen == [
+        (body["selected"], body["instruction"], "default/model"),
+        (body["selected"], body["instruction"], "premium/model"),
+    ]
+
+
+def test_reviewed_resume_edit_is_saved_as_a_new_version(client, monkeypatch):
+    job_id, app_dir = reviewable_job()
+    original = "\\documentclass{article}\\begin{document}Original.\\end{document}\n"
+    edited = original.replace("Original.", "More relevant.")
+    store.write(app_dir, "resume.tex", original)
+    seen = {}
+
+    def fake_save(job, text):
+        seen["job"], seen["text"] = job.id, text
+        return app_dir.parent / "new-resume-version"
+
+    import pipeline
+    monkeypatch.setattr(pipeline, "save_resume", fake_save)
+    response = client.post(
+        f"/review/{job_id}/resume/save",
+        json={"expected": original, "text": edited},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["folder"] == "new-resume-version"
+    assert seen == {"job": job_id, "text": edited}
+    stale = client.post(
+        f"/review/{job_id}/resume/save",
+        json={"expected": "old", "text": edited},
+    )
+    assert stale.status_code == 409
+
+
 def test_detail_surfaces_a_failed_cover_letter(client):
     job_id, app_dir = reviewable_job()
     store.write(app_dir, "cover_letter_error.txt", "LLMError: no content\n")
@@ -969,6 +1040,11 @@ def test_review_page_has_explicit_reject_and_document_regeneration_controls():
     assert 'id="coverEditText"' in page
     assert 'id="coverRewriteDefault"' in page
     assert 'id="coverRewriteOpus"' in page
+    assert 'id="resumeEditText"' in page
+    assert 'id="resumeRewriteDefault"' in page
+    assert 'id="resumeRewriteOpus"' in page
+    assert "/resume/rewrite" in page
+    assert "/resume/save" in page
     assert 'content: attr(data-model)' in page
 
 

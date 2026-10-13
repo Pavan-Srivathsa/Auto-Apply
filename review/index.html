@@ -295,21 +295,28 @@
   .docs iframe { display: block; aspect-ratio: 8.5 / 11; height: auto; margin: 0 auto;
                  width: min(100%, calc((100vh - 110px) * 8.5 / 11)); }
   .docs .card.letter { max-height: 78vh; overflow-y: auto; }
-  .cover-workbench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(24rem, 1fr);
-                     gap: 1rem; align-items: start; }
-  .cover-edit { position: sticky; top: .5rem; padding: .8rem; border: 2px solid var(--line);
-                background: var(--panel); }
-  .cover-edit textarea.letter-text { min-height: 34rem; line-height: 1.55; resize: vertical; }
-  .cover-selection { margin-top: .65rem; padding-top: .65rem; border-top: 2px solid var(--line); }
-  .cover-selection .quote { display: block; max-height: 5rem; overflow: auto; padding: .45rem .6rem;
-                            border-left: 3px solid var(--purple); white-space: pre-wrap; color: var(--muted); }
+  .cover-workbench, .resume-workbench {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(24rem, 1fr);
+    gap: 1rem; align-items: start;
+  }
+  .cover-edit, .resume-edit { position: sticky; top: .5rem; padding: .8rem; border: 2px solid var(--line);
+                              background: var(--panel); }
+  .cover-edit textarea.letter-text, .resume-edit textarea.resume-text {
+    min-height: 34rem; line-height: 1.55; resize: vertical;
+  }
+  .resume-edit textarea.resume-text { font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
+  .cover-selection, .resume-selection { margin-top: .65rem; padding-top: .65rem; border-top: 2px solid var(--line); }
+  .cover-selection .quote, .resume-selection .quote {
+    display: block; max-height: 5rem; overflow: auto; padding: .45rem .6rem;
+    border-left: 3px solid var(--purple); white-space: pre-wrap; color: var(--muted);
+  }
   .model-choice { position: relative; }
   .model-choice:hover::after { content: attr(data-model); position: absolute; z-index: 5; left: 0; bottom: calc(100% + 5px);
                                width: max-content; max-width: 24rem; padding: .3rem .45rem; border: 1px solid var(--line);
                                background: var(--ink); color: var(--bg); font: 11px/1.3 inherit; }
   @media (max-width: 1000px) {
-    .cover-workbench { grid-template-columns: 1fr; }
-    .cover-edit { position: static; }
+    .cover-workbench, .resume-workbench { grid-template-columns: 1fr; }
+    .cover-edit, .resume-edit { position: static; }
   }
 
   h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
@@ -722,11 +729,34 @@ async function show(id) {
   const views = [["resume.pdf", "Resume"], ["resume_changes.pdf", "Changes"],
                  ["resume_both.pdf", "Before and after"]]
     .filter(([file]) => data.artifacts.includes(file));
+  const resumeEditor = data.resume_source ? `
+    <div class="resume-edit">
+      <strong>Edit resume</strong>
+      <p class="hint">Highlight wording in the source below, describe the change, then choose a model. Keep the surrounding commands and braces selected when they belong to the wording. Nothing is saved until you press Save new version.</p>
+      <textarea class="resume-text" id="resumeEditText" spellcheck="false">${escape(data.resume_source)}</textarea>
+      <div class="resume-selection" id="resumeSelection" hidden>
+        <span class="quote" id="resumeQuote"></span>
+        <textarea id="resumeInstruction" rows="2" placeholder="How should this highlighted resume text change?"></textarea>
+        <div class="actions">
+          <button class="act model-choice" id="resumeRewriteDefault"
+                  data-model="${escape(data.resume_models?.default || "Default model")}">Rewrite · Default</button>
+          <button class="act opus model-choice" id="resumeRewriteOpus"
+                  data-model="${escape(data.resume_models?.premium || "Opus")}">Rewrite · Opus</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="act primary" id="resumeSave" disabled>Save new version</button>
+        <span class="hint" id="resumeEditNote">Select a passage to rewrite it.</span>
+      </div>
+    </div>` : "";
   const resumeDoc = data.artifacts.includes("resume.pdf")
     ? `<div><h3>Tailored resume
         ${views.length > 1 ? `<span class="views">${views.map(([file, label], i) =>
           `<button class="view${i ? "" : " on"}" data-file="${file}">${label}</button>`).join("")}</span>` : ""}</h3>
-        <iframe id="resumeView" src="/review/${id}/file/resume.pdf${stamp}#toolbar=0&navpanes=0&view=Fit" title="Tailored resume"></iframe></div>` : "";
+        <div class="resume-workbench">
+          <iframe id="resumeView" src="/review/${id}/file/resume.pdf${stamp}#toolbar=0&navpanes=0&view=Fit" title="Tailored resume"></iframe>
+          ${resumeEditor}
+        </div></div>` : "";
   const coverEditor = data.cover_letter ? `
     <div class="cover-edit">
       <strong>Edit cover letter</strong>
@@ -898,6 +928,7 @@ async function show(id) {
   if ($("fillJobright")) $("fillJobright").onclick = () => fillAgain(id, "jobright_check");
   if ($("reveal")) wireReveal(id);
   if ($("askGo")) wireThread(id, data);
+  if ($("resumeEditText")) wireResumeEditor(id, data);
   if ($("coverEditText")) wireCoverEditor(id, data);
   if ($("rememberGo")) wireRemember(id);
   if (working) setTimeout(() => { if (current === id) show(id); }, working * 1000 + 200);
@@ -1199,6 +1230,82 @@ function wireCoverEditor(id, data) {
       await api(`/review/${id}/cover/save`, {
         method: "POST",
         body: JSON.stringify({ expected: data.cover_letter, text: area.value }),
+      });
+      await show(id);
+    } catch (err) {
+      note.textContent = err.message || "Save failed";
+      save.disabled = false;
+    } finally {
+      busy = false;
+    }
+  };
+}
+
+function wireResumeEditor(id, data) {
+  const area = $("resumeEditText"), panel = $("resumeSelection"), quote = $("resumeQuote");
+  const instruction = $("resumeInstruction"), note = $("resumeEditNote"), save = $("resumeSave");
+  const normal = $("resumeRewriteDefault"), opus = $("resumeRewriteOpus");
+  let selection = null;
+  let busy = false;
+
+  const capture = () => {
+    if (busy) return;
+    const start = area.selectionStart, end = area.selectionEnd;
+    if (end <= start) return;
+    selection = { start, end };
+    quote.textContent = area.value.slice(start, end);
+    panel.hidden = false;
+    note.textContent = "Describe the change, then choose Default or Opus.";
+  };
+  area.addEventListener("select", capture);
+  area.addEventListener("mouseup", capture);
+  area.addEventListener("keyup", capture);
+  area.addEventListener("input", () => {
+    save.disabled = area.value === data.resume_source;
+  });
+
+  const rewrite = async (premium) => {
+    const request = instruction.value.trim();
+    if (!selection) { note.textContent = "Highlight the resume text to rewrite."; area.focus(); return; }
+    if (!request) { note.textContent = "Say how the highlighted resume text should change."; instruction.focus(); return; }
+    const before = area.value;
+    const selected = before.slice(selection.start, selection.end);
+    busy = true;
+    normal.disabled = opus.disabled = true;
+    note.textContent = premium ? "Opus is rewriting the selection…" : "Rewriting the selection…";
+    try {
+      const result = await api(`/review/${id}/resume/rewrite`, {
+        method: "POST",
+        body: JSON.stringify({ selected, instruction: request, premium }),
+      });
+      if (area.value !== before) throw new Error("The resume changed while the rewrite was running. Try again.");
+      area.value = before.slice(0, selection.start) + result.replacement + before.slice(selection.end);
+      const end = selection.start + result.replacement.length;
+      area.focus();
+      area.setSelectionRange(selection.start, end);
+      selection.end = end;
+      quote.textContent = result.replacement;
+      save.disabled = false;
+      note.textContent = `Rewritten with ${result.model}. Review it, then save the new version.`;
+    } catch (err) {
+      note.textContent = err.message || "Rewrite failed";
+    } finally {
+      busy = false;
+      normal.disabled = opus.disabled = false;
+    }
+  };
+  normal.onclick = () => rewrite(false);
+  opus.onclick = () => rewrite(true);
+
+  save.onclick = async () => {
+    if (save.disabled || busy) return;
+    busy = true;
+    save.disabled = true;
+    note.textContent = "Validating and compiling the new resume…";
+    try {
+      await api(`/review/${id}/resume/save`, {
+        method: "POST",
+        body: JSON.stringify({ expected: data.resume_source, text: area.value }),
       });
       await show(id);
     } catch (err) {

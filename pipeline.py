@@ -553,6 +553,56 @@ def save_cover(job: Job, text: str) -> Path:
     return app_dir
 
 
+def save_resume(job: Job, tex: str) -> Path:
+    """Validate and archive a human-reviewed resume edit as a new version."""
+    current = queue.get(job.id) or job
+    if not current.app_dir:
+        raise FileNotFoundError("this job has no application folder")
+    source = Path(current.app_dir)
+    if not source.exists():
+        raise FileNotFoundError(f"application folder {source.name} is gone")
+
+    master_path = paths.BASE / "resume.tex"
+    master = master_path.read_text()
+    posting = _archived_posting(source, current)
+    stories = profile.read_used(source)
+    profile_text = tailor.load_profile(stories=stories)
+    warnings = tailor._validate(master, tex, profile_text, posting.text)
+
+    app_dir = store.create(current)
+    store.set_status(app_dir, Status.TAILORING, "saving edited resume")
+    _carry(source, app_dir, [
+        "posting.md", "screen.json", "screen_error.txt", "cover_letter.md",
+        "cover_letter.tex", "cover_letter.pdf", "cover_letter_error.txt",
+    ])
+    store.write(app_dir, "stories_used.txt", "\n".join(stories) + ("\n" if stories else ""))
+    try:
+        store.write(app_dir, "resume.tex", tex)
+        store.write(app_dir, "resume.diff", tailor.make_diff(master, tex) or "(no changes)\n")
+        store.write(
+            app_dir,
+            "suggestions.md",
+            "# Resume edit\n\nChanged from highlighted text on the review page."
+            + (f"\n\n**Length warnings:** {'; '.join(warnings)}" if warnings else "")
+            + "\n",
+        )
+        pdf = texc.compile_pdf(app_dir / "resume.tex", app_dir / "resume.pdf")
+        pages = texc.page_count(pdf)
+        target = base_page_count()
+        if pages is None:
+            raise tailor.TailorError("could not verify the edited resume's page count")
+        if pages != target:
+            raise tailor.TailorError(f"compiled to {pages} pages, must be {target}")
+        write_marked(app_dir, master, tex)
+    except Exception as exc:
+        store.set_status(app_dir, Status.FAILED, f"{type(exc).__name__}: {exc}")
+        raise
+
+    store.set_status(app_dir, current.status, f"saved edited resume; {pages} page(s)")
+    queue.update(current.id, app_dir=str(app_dir), status=current.status, error=None)
+    return app_dir
+
+
 def process_safely(job: Job) -> bool:
     try:
         app_dir = process(job)

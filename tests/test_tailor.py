@@ -81,6 +81,32 @@ def test_extract_block_reads_each_fence():
     assert tailor._extract_block(text, ("markdown", "md")) == "- reworded a bullet"
 
 
+def test_resume_selection_rewrite_returns_only_the_replacement(monkeypatch):
+    seen = {}
+
+    def complete(system, user, **kwargs):
+        seen.update(system=system, user=user, kwargs=kwargs)
+        return "```tex\nBuilt a reliable Python service for 50K daily requests\n```"
+
+    monkeypatch.setattr(tailor.prompts, "text", lambda name: f"prompt:{name}")
+    monkeypatch.setattr(tailor.llm, "complete", complete)
+    replacement = tailor.rewrite_selection(
+        POSTING,
+        ORIGINAL,
+        "Built a scalable Python service handling 50K requests per day",
+        "Emphasize reliability without changing the metric.",
+        profile="Verified candidate profile.",
+        model="premium/model",
+    )
+
+    assert replacement == "Built a reliable Python service for 50K daily requests"
+    assert seen["system"] == "prompt:tailor.edit"
+    assert seen["kwargs"]["model"] == "premium/model"
+    assert "Emphasize reliability" in seen["user"]
+    assert ORIGINAL in seen["user"]
+    assert POSTING.text in seen["user"]
+
+
 def test_make_diff_is_a_unified_diff():
     after = ORIGINAL.replace("scalable Python service", "scalable distributed service")
     diff = tailor.make_diff(ORIGINAL, after)

@@ -365,6 +365,54 @@ def test_saving_an_edited_cover_letter_creates_a_new_version(monkeypatch):
     assert queue.get(job.id).app_dir == str(second)
 
 
+def test_saving_an_edited_resume_validates_and_creates_a_new_version(monkeypatch):
+    stub_success(monkeypatch)
+    job, _ = queue.add(Job(url="https://example.com/jobs/edit-resume", title="Backend Engineer"))
+    first = pipeline.process(job)
+    old_letter = (first / "cover_letter.md").read_bytes()
+    original = (first / "resume.tex").read_text()
+    edited = original.replace("x\\end{document}", "reliable backend systems\\end{document}")
+    queue.update(job.id, status=Status.FILLED)
+    seen = {}
+
+    def validate(master, candidate, profile_text, posting):
+        seen.update(candidate=candidate, profile=profile_text, posting=posting)
+        return ["one line became shorter"]
+
+    monkeypatch.setattr(pipeline.tailor, "_validate", validate)
+    monkeypatch.setattr(
+        pipeline, "write_marked",
+        lambda app_dir, before, after: (app_dir / "resume_changes.pdf").write_bytes(b"%PDF"),
+    )
+
+    second = pipeline.save_resume(queue.get(job.id), edited)
+
+    assert second != first
+    assert (second / "resume.tex").read_text() == edited
+    assert (second / "resume.pdf").exists()
+    assert (second / "cover_letter.md").read_bytes() == old_letter
+    assert "one line became shorter" in (second / "suggestions.md").read_text()
+    assert seen["candidate"] == edited
+    assert "Distributed systems role" in seen["posting"]
+    assert queue.get(job.id).status is Status.FILLED
+    assert queue.get(job.id).app_dir == str(second)
+
+
+def test_edited_resume_with_the_wrong_page_count_is_not_activated(monkeypatch):
+    stub_success(monkeypatch)
+    job, _ = queue.add(Job(url="https://example.com/jobs/edit-pages", title="Backend Engineer"))
+    first = pipeline.process(job)
+    queue.update(job.id, status=Status.FILLED)
+    monkeypatch.setattr(pipeline.tailor, "_validate", lambda *a, **k: [])
+    monkeypatch.setattr(pipeline.texc, "page_count", lambda path: 2)
+
+    with pytest.raises(pipeline.tailor.TailorError, match="compiled to 2 pages"):
+        pipeline.save_resume(queue.get(job.id), (first / "resume.tex").read_text())
+
+    assert queue.get(job.id).app_dir == str(first)
+    assert queue.get(job.id).status is Status.FILLED
+
+
 def test_the_jobs_model_reaches_the_resume_and_the_letter(monkeypatch):
     """"Use Opus" is a per-job choice, so both documents a human reads are
     written with it; everything else stays on the cheap default."""

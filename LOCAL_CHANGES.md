@@ -32,3 +32,8 @@ Intent: A double-confirmed Delete stops that job’s fill, removes its queue row
 Asked: make cover letters warmer, and allow highlighted passages to be changed with a chosen model whose configured name appears on hover.
 Changed: the personal cover prompt, `tailor/cover.py`, `tailor/prompts.py`, `pipeline.py`, `server/review.py`, `review/index.html`, and focused tests.
 Intent: Cover letters avoid presumptive claims about growing the business; the review page pairs the PDF with selectable text, offers Default or Opus for an instructed rewrite, previews the replacement, and saves only after a human click into a new immutable version.
+
+## 2026-10-12 — Rewrite highlighted resume text
+Asked: add the same highlight-and-model editing option to the resume.
+Changed: `tailor/tailor.py`, `tailor/prompts.py`, `pipeline.py`, `server/review.py`, `review/index.html`, and focused tests.
+Intent: The review page pairs the resume PDF with editable source, offers Default or Opus for an instructed selection rewrite with model names on hover, previews every replacement, and creates a new immutable version only after the edited resume passes validation and compilation.

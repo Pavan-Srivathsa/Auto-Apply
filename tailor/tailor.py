@@ -68,6 +68,22 @@ genuinely does not meet, comma separated.>
 ```
 """
 
+EDIT_PROMPT = r"""
+You revise only the highlighted passage of an existing LaTeX resume.
+
+Return replacement LaTeX for that passage only. Do not return the whole resume,
+analysis, quotation marks, headings, markdown, or a code fence. Preserve every
+LaTeX command, brace, link, and surrounding structure unless the highlighted
+passage itself includes it and the reviewer explicitly asks to change it.
+
+Use only facts already supported by the supplied master resume, candidate
+profile, and existing tailored resume. Never invent a skill, result, metric,
+name, employer, project, or technology. Keep every number unchanged unless the
+reviewer supplies its supported replacement. Follow the requested emphasis or
+wording while keeping the result concise enough to occupy no more printed lines
+than the highlighted passage.
+"""
+
 
 @dataclass
 class TailorResult:
@@ -113,6 +129,38 @@ def _extract_block(text: str, languages: tuple[str, ...]) -> Optional[str]:
         if match:
             return match.group(1).strip("\n")
     return None
+
+
+def rewrite_selection(posting: Posting, resume_tex: str, selected: str,
+                      instruction: str, profile: str = "",
+                      model: Optional[str] = None) -> str:
+    """Rewrite one highlighted LaTeX passage, returning its replacement only."""
+    selected = selected.strip()
+    instruction = instruction.strip()
+    if not selected:
+        raise TailorError("highlight some resume text first")
+    if not instruction:
+        raise TailorError("say how the highlighted resume text should change")
+    master = load_base_resume()
+    user = (
+        f"## Reviewer instruction\n\n{instruction}\n\n"
+        f"## Highlighted LaTeX passage\n\n```tex\n{selected}\n```\n\n"
+        f"## Existing tailored resume\n\n```tex\n{resume_tex}\n```\n\n"
+        f"## Master resume: source of truth\n\n```tex\n{master}\n```\n\n"
+        f"## Candidate profile\n\n{profile}\n\n"
+        f"## Job posting\n\n{posting.to_markdown()}"
+    )
+    reply = llm.complete(
+        prompts.text("tailor.edit"),
+        user,
+        model=model or llm.tailor_model(),
+        temperature=0.3,
+        max_tokens=1600,
+    ).strip()
+    replacement = _extract_block(reply, ("tex", "latex")) or reply
+    if not replacement.strip():
+        raise TailorError("model returned no replacement")
+    return replacement.strip()
 
 
 def make_diff(before: str, after: str, path: str = "resume.tex") -> str:
