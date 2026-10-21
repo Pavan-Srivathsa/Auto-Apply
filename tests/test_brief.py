@@ -20,7 +20,8 @@ def reply(requirements):
 
 @pytest.fixture(autouse=True)
 def no_jev(monkeypatch):
-    monkeypatch.delenv(jev.API_KEY_ENV, raising=False)
+    for name in (jev.API_KEY_ENV, "JEV_API_KEY", "JEV_BASE_URL", "JEV_MODEL"):
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_real_quotes_are_kept_and_invented_ones_become_gaps():
@@ -145,3 +146,12 @@ def test_jev_client_errors_are_jev_errors(monkeypatch):
         jev.ask({}, {"q": jev.noul("?")}, client=Http(status=401, data={"detail": "bad key"}))
     with pytest.raises(jev.JevError):
         jev.ask({}, {"q": jev.noul("?")}, client=Http(data={"answers": {}}))
+
+
+def test_the_jev_names_in_the_persons_env_are_read(monkeypatch):
+    monkeypatch.setenv("JEV_API_KEY", '"secret"')
+    monkeypatch.setenv("JEV_MODEL", "jev-1.14")
+    http = Http(data={"answers": {"q": {"type": "noul", "noul": 0.5}}})
+    assert jev.configured()
+    jev.ask({}, {"q": jev.noul("?")}, client=http)
+    assert http.sent["headers"]["Authorization"] == "Bearer secret" and http.sent["json"]["model"] == "jev-1.14"

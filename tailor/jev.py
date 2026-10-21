@@ -6,9 +6,10 @@ options) and `score` (a position on an ordered rubric). That is the judge
 the loop wants: stable, cheap, fast, and never prose to parse. Text models
 still write; Jev decides whether what they wrote holds up.
 
-Optional by design. Without `TYPESAFE_API_KEY` (the SDK's own variable
-names) `configured()` is false and every caller keeps its text-model path,
-so the app works the same before the key is added.
+Optional by design. Without a key `configured()` is false and every
+caller keeps its text-model path, so the app works the same before the key
+is added. The key is read as `JEV_API_KEY` (with `JEV_BASE_URL`,
+`JEV_MODEL`), or by the SDK's own names (`TYPESAFE_*`).
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ import httpx
 API_KEY_ENV = "TYPESAFE_API_KEY"
 BASE_URL_ENV = "TYPESAFE_BASE_URL"
 MODEL_ENV = "TYPESAFE_DEFAULT_MODEL"
+ALIASES = {API_KEY_ENV: "JEV_API_KEY", BASE_URL_ENV: "JEV_BASE_URL", MODEL_ENV: "JEV_MODEL"}
 BASE_URL = "https://api.typesafe.ai"
 MODEL = "jev-latest"
 TIMEOUT = 60.0
@@ -31,8 +33,13 @@ class JevError(RuntimeError):
     pass
 
 
+def _env(name: str) -> str:
+    """`JEV_*` first, as the person's .env names them, then the SDK's name."""
+    return (os.environ.get(ALIASES[name]) or os.environ.get(name) or "").strip().strip('"').strip("'")
+
+
 def configured() -> bool:
-    return bool(os.environ.get(API_KEY_ENV, "").strip())
+    return bool(_env(API_KEY_ENV))
 
 
 def noul(instructions, criteria: Optional[dict] = None) -> dict:
@@ -53,14 +60,14 @@ def score(instructions, criteria: list) -> dict:
 def ask(state, questions: dict, model: Optional[str] = None,
         client: Optional[httpx.Client] = None) -> dict:
     """Every answer by question name, as the API returns it. Raises JevError."""
-    key = os.environ.get(API_KEY_ENV, "").strip()
+    key = _env(API_KEY_ENV)
     if not key:
-        raise JevError(f"{API_KEY_ENV} is not set")
-    body = {"model": model or os.environ.get(MODEL_ENV) or MODEL, "state": state, "questions": questions}
+        raise JevError(f"{ALIASES[API_KEY_ENV]} is not set")
+    body = {"model": model or _env(MODEL_ENV) or MODEL, "state": state, "questions": questions}
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     if len(json.dumps(state)) > LONG_STATE:
         headers["TypeSafe-Danger-Zone-Long-Context"] = "true"
-    url = (os.environ.get(BASE_URL_ENV) or BASE_URL).rstrip("/") + "/v1/systemone"
+    url = (_env(BASE_URL_ENV) or BASE_URL).rstrip("/") + "/v1/systemone"
     own = client is None
     http = client or httpx.Client(timeout=TIMEOUT)
     try:

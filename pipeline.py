@@ -513,6 +513,7 @@ def write_cover_letter(app_dir: Path, posting, resume_tex: str, extra_instructio
             revise=lambda text, fixes: cover.revise(posting, resume_tex, profile_text, text, fixes,
                                                     model=model, brief=brief_text),
             check=cover.problems,
+            sources=resume_tex + "\n" + profile_text,
         )
         letter.text = review.text
         store.write(app_dir, "cover_review.json", json.dumps(review.to_dict(), indent=2) + "\n")

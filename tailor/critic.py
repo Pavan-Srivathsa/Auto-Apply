@@ -30,7 +30,7 @@ from . import brief as briefs
 from . import jev, llm, prompts
 
 ROUNDS = 2             # revisions after the first draft
-THRESHOLD = 9          # a score at or above this is good enough to stop
+THRESHOLD = 10         # stop early only at a perfect score; otherwise while any point needs a fix
 FIX_BELOW = 1.5        # a point under this (0..2) gets its fix; "fair" is not good enough to send
 TOP = {"email": 1, "cover": 3}   # the brief's top required items a document must answer
 INVENTED = 0.5         # Jev's probability above which a draft claims something it may not
@@ -142,25 +142,32 @@ def _to_ten(levels: list[float]) -> int:
     return max(1, min(10, round(1 + 9 * (sum(levels) / (2 * len(levels))))))
 
 
-def _state(document: str, brief: Optional[briefs.Brief], subject: str = "") -> dict:
+def _state(document: str, brief: Optional[briefs.Brief], subject: str = "", sources: str = "") -> dict:
     state = {"draft": document}
     if subject:
         state["subject"] = subject
+    if sources:
+        # Everything the candidate may claim: the resume and the stories. The
+        # brief's quotes alone are too few; a true line from the resume that the
+        # brief did not quote read as invented.
+        state["sources"] = " ".join(briefs._plain(sources).split())
     if brief:
         state["brief"] = [{"asks": r.text, "required": r.kind == "must", "evidence": r.evidence or None}
                           for r in brief.requirements]
     return state
 
 
-def judge_jev(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "") -> Critique:
+def judge_jev(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "",
+              sources: str = "") -> Critique:
     rubric = RUBRICS[kind]
     questions = {p.name: jev.score(p.question, list(p.levels)) for p in rubric}
     questions["invented"] = jev.noul(
-        {"question": "Does `draft` claim a skill, achievement, number or relationship that `brief` evidence "
-                     "does not support?",
-         "focus": "Ignore the requirements themselves; judge only what the candidate claims to have done."},
-        {"true": "It claims something not in the evidence", "false": "Every claim traces to the evidence"})
-    answers = jev.ask(_state(document, brief, subject), questions)
+        {"question": "Does `draft` claim a skill, employer, achievement, number or relationship that "
+                     "`sources` does not support?",
+         "focus": "Judge only what the candidate claims to have done or know, against `sources`. Opinions and "
+                  "interest in the role are not claims."},
+        {"true": "It claims something `sources` does not support", "false": "Every claim traces to `sources`"})
+    answers = jev.ask(_state(document, brief, subject, sources), questions)
     points = {p.name: float(answers[p.name]["score"]) for p in rubric}
     invented = float(answers["invented"]["noul"])
     score = _to_ten(list(points.values()))
@@ -172,13 +179,14 @@ def judge_jev(kind: str, document: str, brief: Optional[briefs.Brief], subject: 
 
 
 def judge_text(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "",
-               model: Optional[str] = None) -> Critique:
+               sources: str = "", model: Optional[str] = None) -> Critique:
     rubric = RUBRICS[kind]
     lines = [f"- {p.name}: {p.question} Levels: 0 = {p.levels[0]}; 1 = {p.levels[1]}; 2 = {p.levels[2]}."
              for p in rubric]
-    user = (json.dumps(_state(document, brief, subject), indent=1)
+    user = (json.dumps(_state(document, brief, subject, sources), indent=1)
             + "\n\n## Rubric\n\n" + "\n".join(lines)
-            + "\n- invented: true if `draft` claims anything `brief` evidence does not support.")
+            + "\n- invented: true if `draft` claims anything `sources` (or, without them, `brief` evidence) "
+              "does not support.")
     model = model or os.environ.get("OPENROUTER_CRITIC_MODEL") or llm.tailor_model()
     reply = llm.complete(prompts.text("critic") + "\n" + prompts.text("critic.format"), user,
                          model=model, temperature=0.1, max_tokens=800)
@@ -194,10 +202,11 @@ def judge_text(kind: str, document: str, brief: Optional[briefs.Brief], subject:
     return Critique(score=score, points=points, fixes=fixes, judge=model, invented=invented)
 
 
-def judge(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "") -> Critique:
+def judge(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "",
+          sources: str = "") -> Critique:
     """Jev when configured, else the text model. Coverage fixes from code come
     first: an unanswered requirement with evidence is the most useful note."""
-    critique = (judge_jev if jev.configured() else judge_text)(kind, document, brief, subject)
+    critique = (judge_jev if jev.configured() else judge_text)(kind, document, brief, subject, sources)
     critique.fixes = _coverage_fixes(kind, brief, document) + critique.fixes
     return critique
 
@@ -208,13 +217,15 @@ def refine(kind: str, draft: str, brief: Optional[briefs.Brief],
            check: Callable[[str], list[str]] = lambda text: [],
            rounds: int = ROUNDS, threshold: int = THRESHOLD,
            subject_of: Callable[[str], str] = lambda text: "",
-           body_of: Callable[[str], str] = lambda text: text) -> Refined:
+           body_of: Callable[[str], str] = lambda text: text,
+           sources: str = "") -> Refined:
     """Improve `draft`. `revise(text, fixes)` returns a new full text (it may
     raise); `check(text)` lists the writer's rule problems, and a revision
     with any is discarded. `subject_of` / `body_of` split an email held as one
-    string. Never raises."""
+    string. `sources` is what the candidate may claim (resume and stories).
+    Never raises."""
     def judged(text: str) -> Critique:
-        return judge(kind, body_of(text), brief, subject_of(text))
+        return judge(kind, body_of(text), brief, subject_of(text), sources)
 
     try:
         best = judged(draft)

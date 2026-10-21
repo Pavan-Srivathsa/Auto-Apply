@@ -17,13 +17,15 @@ BRIEF = briefs.Brief(role="Data Engineer", requirements=[
 
 @pytest.fixture(autouse=True)
 def no_jev(monkeypatch):
-    monkeypatch.delenv(jev.API_KEY_ENV, raising=False)
+    for name in (jev.API_KEY_ENV, "JEV_API_KEY", "JEV_BASE_URL", "JEV_MODEL"):
+        monkeypatch.delenv(name, raising=False)
 
 
 def jev_answers(levels, invented=0.1):
     def ask(state, questions, model=None, client=None):
         assert set(questions) == {p.name for p in critic.EMAIL} | {"invented"}
         assert state["brief"][1]["evidence"] is None             # a gap goes to Jev as null
+        assert "sources" not in state or "resumeItem" not in state["sources"]   # sources as plain text
         out = {name: {"type": "score", "score": level} for name, level in levels.items()}
         out["invented"] = {"type": "noul", "noul": invented}
         return out
@@ -42,7 +44,8 @@ def test_jev_scores_the_rubric_and_weak_points_become_fixed_instructions(monkeyp
 def test_an_inventing_draft_is_capped_and_told_to_stop(monkeypatch):
     monkeypatch.setenv(jev.API_KEY_ENV, "key")
     monkeypatch.setattr(jev, "ask", jev_answers({p.name: 2 for p in critic.EMAIL}, invented=0.9))
-    c = critic.judge("email", "Airflow, 2M rows a day, and I ran Spark on 10TB.", BRIEF)
+    c = critic.judge("email", "Airflow, 2M rows a day, and I ran Spark on 10TB.", BRIEF,
+                     sources=r"\resumeItem{Built an Airflow pipeline moving 2M rows a day}")
     assert c.score == critic.INVENTED_CAP and "claim nothing new" in c.fixes[0]
 
 
@@ -71,7 +74,7 @@ def scripted(scores):
     """A judge that returns these scores in order, with one fix while below 8."""
     it = iter(scores)
 
-    def judge(kind, document, brief, subject=""):
+    def judge(kind, document, brief, subject="", sources=""):
         s = next(it)
         return critic.Critique(score=s, fixes=[] if s >= critic.THRESHOLD else ["make it better"], judge="test")
     return judge

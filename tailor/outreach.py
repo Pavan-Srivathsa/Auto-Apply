@@ -108,7 +108,8 @@ def write(context: Context, contact: Contact, job_title: str, company: str,
         last_subject, last_body = subject, body
         last_problems = problems(subject, body)
         if not last_problems:
-            return _refined(Written(subject, body, model, attempt), user, model, brief)
+            return _refined(Written(subject, body, model, attempt), user, model, brief,
+                            sources=context.resume_tex + "\n" + context.profile)
         user += (
             "\n\n## Previous reply rejected\n\n"
             + "; ".join(last_problems)
@@ -121,7 +122,8 @@ def write(context: Context, contact: Contact, job_title: str, company: str,
     )
 
 
-def _refined(written: Written, user: str, model: str, brief: Optional[briefs.Brief]) -> Written:
+def _refined(written: Written, user: str, model: str, brief: Optional[briefs.Brief],
+             sources: str = "") -> Written:
     """Judge the email against the brief and revise while it improves
     (tailor.critic). A revision must pass `problems` like the first draft."""
     if brief is not None:
@@ -136,6 +138,7 @@ def _refined(written: Written, user: str, model: str, brief: Optional[briefs.Bri
         "email", _joined(written.subject, written.body), brief, revise,
         check=lambda text: problems(*_split(text)),
         subject_of=lambda text: _split(text)[0], body_of=lambda text: _split(text)[1],
+        sources=sources,
     )
     written.subject, written.body = _split(review.text)
     written.review = review.to_dict()
