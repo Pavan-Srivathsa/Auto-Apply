@@ -9,7 +9,8 @@ from typing import Optional
 
 from outreach.models import Contact, Draft
 
-from . import cover, llm, prompts
+from . import brief as briefs
+from . import cover, critic, llm, prompts
 from .answers import Context
 
 RULES = Path(__file__).resolve().parent / "outreach_rules.md"
@@ -41,6 +42,7 @@ class Written:
     body: str
     model: str
     attempts: int
+    review: dict = None
 
 
 def system_prompt() -> str:
@@ -69,9 +71,18 @@ def problems(subject: str, body: str) -> list[str]:
     return found
 
 
+def _joined(subject: str, body: str) -> str:
+    return f"Subject: {subject}\n\n{body}"
+
+
+def _split(text: str) -> tuple[str, str]:
+    head, _, body = text.partition("\n\n")
+    return head.removeprefix("Subject:").strip(), body.strip()
+
+
 def write(context: Context, contact: Contact, job_title: str, company: str,
           candidate_name: str, attach_resume: bool = True,
-          model: Optional[str] = None) -> Written:
+          model: Optional[str] = None, brief: Optional[briefs.Brief] = None) -> Written:
     if not context.posting or not context.resume_tex:
         raise OutreachError("the posting and tailored resume are required")
     if not contact.name:
@@ -97,7 +108,7 @@ def write(context: Context, contact: Contact, job_title: str, company: str,
         last_subject, last_body = subject, body
         last_problems = problems(subject, body)
         if not last_problems:
-            return Written(subject, body, model, attempt)
+            return _refined(Written(subject, body, model, attempt), user, model, brief)
         user += (
             "\n\n## Previous reply rejected\n\n"
             + "; ".join(last_problems)
@@ -110,12 +121,34 @@ def write(context: Context, contact: Contact, job_title: str, company: str,
     )
 
 
+def _refined(written: Written, user: str, model: str, brief: Optional[briefs.Brief]) -> Written:
+    """Judge the email against the brief and revise while it improves
+    (tailor.critic). A revision must pass `problems` like the first draft."""
+    if brief is not None:
+        user += "\n\n" + brief.as_message()
+
+    def revise(text: str, fixes: list[str]) -> str:
+        reply = llm.complete(system_prompt(), user + critic.revision_request(text, fixes),
+                             model=model, temperature=0.4, max_tokens=1200)
+        return _joined(" ".join(_block(reply, "subject").split()), _block(reply, "email").strip())
+
+    review = critic.refine(
+        "email", _joined(written.subject, written.body), brief, revise,
+        check=lambda text: problems(*_split(text)),
+        subject_of=lambda text: _split(text)[0], body_of=lambda text: _split(text)[1],
+    )
+    written.subject, written.body = _split(review.text)
+    written.review = review.to_dict()
+    return written
+
+
 def draft(context: Context, contact: Contact, job_title: str, company: str,
           candidate_name: str, attach_resume: bool = True,
-          resume_folder: str = "", model: Optional[str] = None) -> Draft:
+          resume_folder: str = "", model: Optional[str] = None,
+          brief: Optional[briefs.Brief] = None) -> Draft:
     written = write(
         context, contact, job_title, company, candidate_name,
-        attach_resume=attach_resume, model=model,
+        attach_resume=attach_resume, model=model, brief=brief,
     )
     return Draft.create(
         contact_id=contact.id,
@@ -124,4 +157,5 @@ def draft(context: Context, contact: Contact, job_title: str, company: str,
         attach_resume=attach_resume,
         resume_folder=resume_folder,
         model=written.model,
+        review=written.review or {},
     )

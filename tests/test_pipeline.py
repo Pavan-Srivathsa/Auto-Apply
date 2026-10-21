@@ -28,6 +28,8 @@ def isolated(tmp_path, monkeypatch):
     # Same for the screen: it reads base/applicant.md and calls the model.
     # No model reads the posting into a brief here; test_brief covers that.
     monkeypatch.setattr(pipeline.briefs, "build", no_brief)
+    monkeypatch.setattr(pipeline.critic, "refine",
+                        lambda kind, draft, brief, revise, check=None, **kw: pipeline.critic.Refined(text=draft))
     monkeypatch.setattr(pipeline.screen_server, "screen_url",
                         lambda url, text, title="", force=False: (Screen(verdict="ok"), True))
     qpath = tmp_path / "queue.json"

@@ -164,6 +164,17 @@ def write(posting: Posting, resume_tex: str, profile: str = "", extra_instructio
     )
 
 
+def revise(posting: Posting, resume_tex: str, profile: str, letter: str, fixes: list[str],
+           model: Optional[str] = None, brief: str = "") -> str:
+    """One rewrite of `letter` with an editor's notes (tailor.critic). The
+    critic loop checks the result with `problems` and keeps it only if it
+    scores higher, so this never retries on its own."""
+    from .critic import revision_request
+    user = _user_message(posting, resume_tex, profile, "", brief) + revision_request(letter, fixes)
+    return clean(llm.complete(system_prompt(), user, model=model or llm.tailor_model(),
+                              temperature=0.5, max_tokens=4000))
+
+
 def rewrite_selection(posting: Posting, resume_tex: str, letter: str, selected: str,
                       instruction: str, profile: str = "",
                       model: Optional[str] = None) -> str:

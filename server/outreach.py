@@ -21,6 +21,7 @@ import paths
 from outreach import apollo, jobright, store
 from outreach.models import Contact, Draft, now
 from server import queue
+from tailor import brief as briefs
 from tailor import outreach as writer
 from tailor import profile, tailor
 from tailor.answers import Context
@@ -252,6 +253,7 @@ def _write_draft(job, app_dir, contact: Contact, attach_resume: bool) -> Draft:
         return writer.draft(
             _context(app_dir), contact, job.title, job.company,
             _candidate_name(app_dir), attach_resume, app_dir.name,
+            brief=briefs.load(app_dir),
         )
     except writer.OutreachError as exc:
         raise HTTPException(502, str(exc)) from None

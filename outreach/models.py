@@ -53,6 +53,7 @@ class Draft(BaseModel):
     sent_at: Optional[str] = None
     message_id: str = ""
     error: str = ""
+    review: dict = Field(default_factory=dict)   # tailor.critic's score and trace; {} = not judged
 
     @classmethod
     def create(cls, contact_id: str, subject: str, body: str, **values) -> "Draft":

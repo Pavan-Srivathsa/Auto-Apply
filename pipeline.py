@@ -26,7 +26,7 @@ from server import postings, queue, runner, seen, settings
 from server import screen as screen_server
 from server.models import Job, Status
 from tailor import brief as briefs
-from tailor import cover, fetch, layout, profile, quality, resume_bases, tailor
+from tailor import cover, critic, fetch, layout, profile, quality, resume_bases, tailor
 from tex import compile as texc
 from tex import mark
 
@@ -502,8 +502,20 @@ def write_cover_letter(app_dir: Path, posting, resume_tex: str, extra_instructio
     """
     try:
         brief = briefs.load(app_dir)
-        letter = cover.write(posting, resume_tex, tailor.load_profile(stories=stories),
-                             extra_instruction, model=model, brief=brief.as_message() if brief else "")
+        brief_text = brief.as_message() if brief else ""
+        profile_text = tailor.load_profile(stories=stories)
+        letter = cover.write(posting, resume_tex, profile_text,
+                             extra_instruction, model=model, brief=brief_text)
+        # Judged against the brief and revised while it improves (tailor.critic).
+        # The review is kept next to the letter; a failed judge leaves the letter as written.
+        review = critic.refine(
+            "cover", letter.text, brief,
+            revise=lambda text, fixes: cover.revise(posting, resume_tex, profile_text, text, fixes,
+                                                    model=model, brief=brief_text),
+            check=cover.problems,
+        )
+        letter.text = review.text
+        store.write(app_dir, "cover_review.json", json.dumps(review.to_dict(), indent=2) + "\n")
         store.write(app_dir, "cover_letter.md", letter.text + "\n")
         store.write(app_dir, "cover_letter.tex", cover.to_tex(letter.text))
         texc.compile_pdf(app_dir / "cover_letter.tex", app_dir / "cover_letter.pdf")
@@ -514,7 +526,9 @@ def write_cover_letter(app_dir: Path, posting, resume_tex: str, extra_instructio
         store.write(app_dir, "cover_letter_error.txt", detail + "\n")
         print(f"  cover letter failed: {detail.splitlines()[0]}", file=sys.stderr)
         return "no cover letter (see cover_letter_error.txt)"
-    return f"cover letter {letter.words} words"
+    scored = f", scored {review.score}/10" + (f" (from {review.first_score})" if review.improved else "") \
+        if review.score else ""
+    return f"cover letter {letter.words} words{scored}"
 
 
 REGENERATE_TARGETS = {"resume", "cover"}

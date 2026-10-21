@@ -97,6 +97,12 @@ CATALOG: tuple[Prompt, ...] = (
            _file("tailor.brief", "RULES")),
     Prompt("brief.format", "Job brief reply format", "Tailoring", FORMAT_NOTE,
            _const("tailor.brief", "REPLY_FORMAT")),
+    Prompt("critic", "Draft critic", "Tailoring",
+           "How a cover letter or email is scored when no Jev key is set. The rubric points "
+           "and the fixes the writer gets are in code (tailor/critic.py).",
+           _const("tailor.critic", "PROMPT")),
+    Prompt("critic.format", "Draft critic reply format", "Tailoring", FORMAT_NOTE,
+           _const("tailor.critic", "FORMAT")),
     Prompt("answers", "Form answers", "Tailoring",
            "How the open questions on a form are answered. Visa questions are "
            "refused in code whatever this says.",
