@@ -13,6 +13,31 @@ Asked: "After Jobright autofill is done ... make sure [the bar] stays."
 Changed: `capture/content.js` and `tests/test_capture.py`.
 Intent: Once any automation works on an application form, the full Autopilot bar remains expanded through the handoff to the human; only an explicit minimize click folds it.
 
+## 2026-10-02 — Human-approved recruiter outreach
+Asked: implement the Automated Outreach System plan, with Apollo first, Jobright fallback, a carousel after the cover letter, and Gmail delivery.
+Changed: `outreach/`, `server/outreach.py`, `tailor/outreach.py`, `tailor/outreach_rules.md`, `tailor/prompts.py`, `mailing.py`, `scout/mail.py`, `review/index.html`, configuration, and tests.
+Intent: Each job can find recruiter and manager contacts, prepare independently editable carousel drafts, and send a tailored resume only after one explicit human approval. No pipeline, browser agent, or prompt can send email.
+
+## 2026-10-02 — Surface Outreach save failures
+Asked: "I have added the key and the gmail password ... but no response."
+Changed: `review/index.html`.
+Intent: A failed Apollo/Gmail save, empty fields, or a stale server now alerts instead of looking like the button did nothing.
+
+## 2026-10-02 — Select people, then write every email
+Asked: select the people to email, one write action, carousel shows them together.
+Changed: `server/outreach.py`, `review/index.html`, `tests/test_outreach.py`.
+Intent: Tick the contacts, press Write emails once, and the carousel holds every draft. Nothing is sent until each slide is approved.
+
+## 2026-10-02 — Apollo search keeps locked people
+Asked: "its done. lets test"
+Changed: `outreach/apollo.py`, `outreach/models.py`, `tests/test_outreach.py`.
+Intent: Apollo's free people search returns first names and ids, not LinkedIn URLs. Those rows are listed now, and enrichment uses the Apollo id.
+
+## 2026-10-02 — Keep the review server alive
+Asked: "This site can’t be reached … ERR_CONNECTION_REFUSED"
+Changed: `scripts/autopilot`.
+Intent: The review server detaches into its own session so closing the launcher no longer kills port 8787.
+
 ## 2026-10-12 — Generate evidence-led personalized cover letters
 Asked: replace generic cover letters with a detailed personalization, evidence, company-fit, and quality-control prompt.
 Changed: the personal `cover` and `cover.format` prompt overrides, `tailor/cover.py`, and `tests/test_cover.py`.

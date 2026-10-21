@@ -86,3 +86,19 @@ def test_no_prompt_grants_submission():
     for prompt in prompts.CATALOG:
         text = prompt.stock().lower()
         assert "you may submit" not in text and "press submit" not in text.replace("never press submit", ""), prompt.name
+
+
+# 6. Outreach is sent only by the human-only server route.
+
+def test_automation_cannot_reach_outbound_mail():
+    paths = [ROOT / "pipeline.py", ROOT / "apply.py"]
+    paths += list((ROOT / "browser").rglob("*.py"))
+    paths += list((ROOT / "tailor").rglob("*.py"))
+    for path in paths:
+        source = path.read_text()
+        assert "import mailing" not in source and "from mailing" not in source, path
+        assert "send_message(" not in source, path
+
+    route = (ROOT / "server" / "outreach.py").read_text()
+    assert "confirmed" in route and "mailing.send_message(msg)" in route
+    assert "this message is already" in route, "a sent email must not be sent twice"

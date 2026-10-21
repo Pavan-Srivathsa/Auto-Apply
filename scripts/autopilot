@@ -59,9 +59,34 @@ start() {
   cd "$REPO" || exit 1
 
   if ! alive "$RUN/server.pid" || ! healthy "$port"; then
-    nohup "$PY" -m uvicorn server.app:app --host 127.0.0.1 --port "$port" \
-      >> "$LOGS/server.log" 2>&1 < /dev/null &
-    echo $! > "$RUN/server.pid"
+    # Own session, not the launching shell's. Agent terminals and
+    # Autopilot.app both exit after start; a process-group kill then
+    # took uvicorn with them and the page said connection refused.
+    "$PY" - "$REPO" "$LOGS/server.log" "$port" "$RUN/server.pid" <<'PY'
+import os, sys
+repo, log_path, port, pid_path = sys.argv[1:]
+reader, writer = os.pipe()
+child = os.fork()
+if child:
+    os.close(writer)
+    daemon = int(os.read(reader, 32) or b"0")
+    os.close(reader)
+    os.waitpid(child, 0)
+    open(pid_path, "w").write(str(daemon) + "\n")
+    sys.exit(0)
+os.close(reader)
+os.setsid()
+if os.fork():
+    os._exit(0)
+os.write(writer, str(os.getpid()).encode())
+os.close(writer)
+os.chdir(repo)
+log = open(log_path, "a")
+os.dup2(log.fileno(), 1)
+os.dup2(log.fileno(), 2)
+os.execv(sys.executable, [sys.executable, "-m", "uvicorn", "server.app:app",
+                          "--host", "127.0.0.1", "--port", port])
+PY
     for _ in $(seq 1 60); do healthy "$port" && break; sleep 0.5; done
     healthy "$port" || { echo "the server did not start; see $LOGS/server.log" >&2; exit 1; }
   fi

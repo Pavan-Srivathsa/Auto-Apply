@@ -24,6 +24,7 @@ from .profile import router as profile_router
 from .prompts import router as prompts_router
 from .report import router as report_router
 from .github import router as github_router
+from .outreach import router as outreach_router
 from .review import router as review_router
 from .scout import router as scout_router
 from .screen import router as screen_router
@@ -79,6 +80,7 @@ class StatusUpdate(BaseModel):
 
 
 app.include_router(review_router)
+app.include_router(outreach_router)
 app.include_router(screen_router)
 app.include_router(settings_router)
 app.include_router(profile_router)
