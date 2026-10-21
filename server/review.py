@@ -13,6 +13,7 @@ an existing one is ever overwritten.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -27,6 +28,7 @@ from browser import chrome, guard
 from server import corrections, queue, runner, seen, thread as job_thread
 from server.models import REJECT_LABELS, Job, RejectReason, Status
 from tailor import answers, cover, fetch, llm, profile, resume_bases, tailor
+from tailor import brief as briefs
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -213,6 +215,49 @@ def detail(job_id: str) -> dict:
         "log": _log_path(job.id),
         "history": _history(app_dir),
         "fill": _fill_state(job.id),
+        "fit": _fit(app_dir),
+    }
+
+
+def _readable(quote: str) -> str:
+    """A resume line as it prints: LaTeX dashes and escapes as their characters."""
+    quote = quote.replace("---", "\u2014").replace("--", "\u2013")
+    return re.sub(r"\\([%&$#_])", r"\1", quote)
+
+
+def _fit(app_dir: Path) -> Optional[dict]:
+    """What the job asks for and what the candidate has, as the brief read it,
+    with whether the finished resume and letter answer each requirement and
+    the letter's score from the critic loop. None for a job tailored before
+    the brief existed."""
+    brief = briefs.load(app_dir)
+    if brief is None:
+        return None
+
+    def read(name: str) -> str:
+        path = app_dir / name
+        return path.read_text(errors="replace") if path.exists() else ""
+
+    resume, letter = read("resume.tex"), read("cover_letter.md")
+    rows = [{"text": r.text, "kind": r.kind, "evidence": _readable(r.evidence), "where": r.where,
+             "strength": r.strength, "gap": r.gap,
+             "in_resume": briefs.covered(r, resume) if resume else None,
+             "in_letter": briefs.covered(r, letter) if letter else None}
+            for r in brief.requirements]
+    answerable = [row for row in rows if row["kind"] == "must" and not row["gap"]]
+    try:
+        review = json.loads(read("cover_review.json") or "{}")
+    except ValueError:
+        review = {}
+    return {
+        "role": brief.role,
+        "rows": rows,
+        "musts": len(answerable),
+        "musts_gap": sum(1 for row in rows if row["kind"] == "must" and row["gap"]),
+        "in_resume": sum(1 for row in answerable if row["in_resume"]),
+        "judged_by_jev": any(row["strength"] is not None for row in rows),
+        "letter": {"score": review.get("score"), "first": review.get("first_score"),
+                   "judge": review.get("judge"), "rounds": review.get("rounds")} if review.get("score") else None,
     }
 
 

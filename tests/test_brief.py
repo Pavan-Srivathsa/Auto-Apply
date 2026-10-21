@@ -155,3 +155,26 @@ def test_the_jev_names_in_the_persons_env_are_read(monkeypatch):
     assert jev.configured()
     jev.ask({}, {"q": jev.noul("?")}, client=http)
     assert http.sent["headers"]["Authorization"] == "Bearer secret" and http.sent["json"]["model"] == "jev-1.14"
+
+
+def test_the_review_page_gets_what_they_want_against_what_you_have(tmp_path):
+    from server import review
+    brief = briefs.parse(reply([
+        {"text": "Python pipelines", "kind": "must", "terms": ["Airflow"],
+         "evidence": "Built a Python ingestion pipeline on Airflow moving 2M rows a day into PostgreSQL"},
+        {"text": "Spark at scale", "kind": "must", "terms": ["Spark"], "evidence": ""},
+        {"text": "Dashboards", "kind": "nice", "terms": ["React"],
+         "evidence": "Led a React dashboard rewrite used by 40 analysts"},
+    ]), RESUME, PROFILE)
+    briefs.save(tmp_path, brief)
+    (tmp_path / "resume.tex").write_text(RESUME)
+    (tmp_path / "cover_letter.md").write_text("Dear team, my Airflow work moved 2M rows a day.")
+    (tmp_path / "cover_review.json").write_text(json.dumps({"score": 9, "first_score": 7, "judge": "jev", "rounds": 1}))
+    fit = review._fit(tmp_path)
+    assert (fit["musts"], fit["musts_gap"], fit["in_resume"]) == (1, 1, 1)
+    first, spark, react = fit["rows"]
+    assert first["in_resume"] and first["in_letter"]
+    assert spark["gap"] and react["in_resume"] and not react["in_letter"]
+    assert fit["letter"] == {"score": 9, "first": 7, "judge": "jev", "rounds": 1}
+    assert review._fit(tmp_path / "older-job") is None
+    assert review._readable(r"600--800 queries, cut 28\% and R\&D") == "600\u2013800 queries, cut 28% and R&D"

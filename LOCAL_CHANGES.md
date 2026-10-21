@@ -94,3 +94,8 @@ Asked: "i added it" (the Jev key, as `JEV_API_KEY`, `JEV_BASE_URL`, `JEV_MODEL`)
 Changed: `tailor/jev.py` (reads `JEV_*` first, then `TYPESAFE_*`), `tailor/critic.py` (`sources`: the resume and stories, so the invention check sees everything the candidate may claim; the loop runs while any point needs a fix), `tailor/outreach.py`, `pipeline.py`, `.env.example`, tests.
 Intent: Measured on the Microsoft posting with Jev: every brief quote judged a real match (0.74 to 0.96); the letter 9/10 as written; the email 8 to 9 with the opener rewritten (1.13 to 1.93). Before `sources`, Jev saw only the brief's quotes and capped true resume facts as invented.
 
+## 2026-10-21 — What they want, what you have (loop engineering, step 3)
+Asked: "I should just review the key requirements from the job and highlights from my resume and then click apply."
+Changed: `server/review.py` (`fit` in the job detail, `_readable`), `review/index.html` (`fitHtml`, the card above the documents; the approve button reads Apply), `tests/test_brief.py`.
+Intent: Each job opens on one card: every requirement the brief found, the resume or story line that answers it with Jev's confidence, whether the finished resume and letter answer it, gaps in red, and the letter's critic score. The button under it starts the same fill as before and still stops on the filled form for the person's Submit. Jobs tailored before the brief show no card.
+
