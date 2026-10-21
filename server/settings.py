@@ -38,9 +38,14 @@ SETTINGS_PATH = Path(os.environ.get("AUTOPILOT_SETTINGS", paths.DATA / "settings
 # keeps asking for. A proposal is never applied without their click.
 # onboarded: the first-run screens (key, Jobright, the offer of the profile
 # interview) were finished once; they are not shown again.
+# auto_outreach: a job that came from Lenny's Jobs gets its company's people
+# looked up and one email drafted per role (recruiter, hiring manager) once
+# the tailoring is done. Drafts only; each one is sent by a click on the
+# review page, never by the pipeline.
 # scout_checks_per_day: how often every watched careers page is read, unless
 # the watch sets its own. 4 = every six hours.
-DEFAULTS = {"use_profile": True, "auto_fill": True, "auto_learn": False, "learn_prompts": True, "onboarded": False, "scout_checks_per_day": 4}
+DEFAULTS = {"use_profile": True, "auto_fill": True, "auto_learn": False, "learn_prompts": True, "onboarded": False, "auto_outreach": True,
+            "scout_checks_per_day": 4}
 
 router = APIRouter()
 
@@ -51,6 +56,7 @@ class Settings(BaseModel):
     auto_learn: Optional[bool] = None
     learn_prompts: Optional[bool] = None
     onboarded: Optional[bool] = None
+    auto_outreach: Optional[bool] = None
     scout_checks_per_day: Optional[int] = None
 
 
@@ -77,6 +83,10 @@ def use_profile() -> bool:
 
 def auto_fill() -> bool:
     return bool(load().get("auto_fill", True))
+
+
+def auto_outreach() -> bool:
+    return bool(load().get("auto_outreach", True))
 
 
 def auto_learn() -> bool:

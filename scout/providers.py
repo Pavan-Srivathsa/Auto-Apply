@@ -23,7 +23,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from scout import Posting, Watch
+from scout import Posting, Watch, lennys
 
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -314,7 +314,7 @@ def apple(watch: Watch, http: httpx.Client) -> list[Posting]:
 PROVIDERS: dict[str, Callable[[Watch, httpx.Client], list[Posting]]] = {
     "greenhouse": greenhouse, "lever": lever, "ashby": ashby, "bamboohr": bamboohr, "workday": workday,
     "smartrecruiters": smartrecruiters, "oracle": oracle, "eightfold": eightfold,
-    "google": google, "amazon": amazon, "apple": apple,
+    "google": google, "amazon": amazon, "apple": apple, "lennys": lennys.fetch,
 }
 
 

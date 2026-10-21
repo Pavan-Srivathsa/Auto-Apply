@@ -367,7 +367,21 @@ def process(job: Job, extra_instruction: str = "", keep_status: bool = False) ->
     queue.update(job.id, status=Status.AWAITING_REVIEW)
     if not auto_approve(app_dir, job):
         tell_tab(job, "done", "Tailored; approve it on the review page")
+    prepare_outreach(job)
     return app_dir
+
+
+def prepare_outreach(job: Job) -> None:
+    """Lenny's Jobs finds come with their company's people and a draft per
+    role, so the person only reads and approves. Drafts only: this module
+    has no way to send, and a failure here never touches the job."""
+    if job.source != "lennys" or not settings.auto_outreach():
+        return
+    try:
+        from server import outreach
+        print(f"  {outreach.prepare(job.id)}")
+    except Exception as exc:  # noqa: BLE001 - the extra must not fail the application
+        print(f"  outreach failed: {str(exc)[:160]}")
 
 
 def auto_approve(app_dir: Path, job: Job) -> bool:

@@ -42,6 +42,7 @@ class Posting:
     location: str = ""
     posted: str = ""      # ISO date when the provider says, else ""
     text: str = ""
+    company: str = ""     # set by boards that list many employers (Lenny's Jobs)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -145,6 +146,10 @@ def detect(url: str) -> tuple[str, dict, str]:
     parts = [p for p in parsed.path.split("/") if p]
     query = parse_qs(parsed.query)
 
+    if host.endswith("lennysjobs.com"):
+        from scout import lennys
+        return "lennys", {"category": lennys.CATEGORY, "levels": list(lennys.LEVELS),
+                                    "posted": lennys.POSTED, "follow": True}, "Lenny's Jobs"
     if host.endswith("greenhouse.io"):
         slug = (query.get("for") or [None])[0]
         if not slug:
@@ -203,4 +208,4 @@ def detect(url: str) -> tuple[str, dict, str]:
             raise DetectError("Eightfold URL needs ?domain=<company domain>")
         return "eightfold", {"host": host, "domain": domain}, domain.split(".")[0]
     raise DetectError(f"No provider for {host}. Supported: Greenhouse, Lever, Ashby, BambooHR, Workday, "
-                      "SmartRecruiters, Oracle, Eightfold/Microsoft, Google, Amazon, Apple")
+                      "SmartRecruiters, Oracle, Eightfold/Microsoft, Google, Amazon, Apple, Lenny's Jobs")

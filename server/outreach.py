@@ -257,6 +257,51 @@ def _write_draft(job, app_dir, contact: Contact, attach_resume: bool) -> Draft:
         raise HTTPException(502, str(exc)) from None
 
 
+AUTO_ROLES = ("recruiter", "hiring_manager")     # one of each: credits are spent per address
+
+
+def prepare(job_id: str) -> str:
+    """Find the company's people and write one draft per role, for a job
+    that came in on its own (Lenny's Jobs). Never sends: a draft waits on
+    the review page until the person approves it. Returns one line for the
+    log; every failure is a line, not an exception, since the job's documents
+    are already done and outreach is the extra."""
+    if not apollo.configured():
+        return "outreach skipped: no Apollo key"
+    try:
+        job, app_dir = _job_and_dir(job_id)
+    except HTTPException as exc:
+        return f"outreach skipped: {exc.detail}"
+    if not job.company.strip():
+        return "outreach skipped: the job has no company name"
+    if store.get(job_id).drafts:
+        return "outreach skipped: drafts already exist"
+    try:
+        found = apollo.discover(job.company, 2)
+    except apollo.ApolloError as exc:
+        return f"outreach skipped: {exc}"
+    store.add_contacts(job_id, found, f"Apollo found {len(found)} contact(s) for you automatically.")
+    written, notes, first = 0, [], None
+    for role in AUTO_ROLES:
+        for contact in (c for c in found if c.role == role):
+            try:
+                draft = _write_draft(job, app_dir, _ensure_email(job_id, contact), True)
+            except HTTPException as exc:       # no email for this one: try the next of the role
+                notes.append(f"{contact.name}: {exc.detail}")
+                continue
+            store.put_draft(job_id, draft)
+            first = first or draft.id
+            written += 1
+            break
+    outreach = store.get(job_id)
+    outreach.lookup_note = f"Wrote {written} email draft(s) automatically; none is sent until you approve it." + (
+        " " + "; ".join(notes) if notes else "")
+    if first:
+        outreach.active_draft = first
+    store.save(outreach)
+    return f"outreach: {written} draft(s) for {job.company}, nothing sent"
+
+
 @router.post("/{job_id}/outreach/draft")
 def create_draft(job_id: str, request: DraftRequest) -> dict:
     job, app_dir = _job_and_dir(job_id)

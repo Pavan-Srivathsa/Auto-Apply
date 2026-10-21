@@ -29,6 +29,7 @@ anything; the pipeline and the fill take it from the queue as usual.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -185,6 +186,11 @@ def _check(watch: Watch, screen: bool) -> dict:
         return _broken(watch, "the page lists no roles at all; wrong URL, or the site changed",
                        last_checked=now, last_total=0, last_matching=0)
 
+    if watch.provider == "lennys" and watch.args.get("follow", True):
+        try:
+            follow_boards(rows)
+        except Exception:  # noqa: BLE001 - the extra never fails the check
+            log.exception("scout follow")
     matching = level.matching(watch, rows)
     seen = set(watch.seen_ids)
     first_run = watch.last_ok is None and not seen
@@ -193,9 +199,10 @@ def _check(watch: Watch, screen: bool) -> dict:
     queued: list[str] = []
     if not first_run:
         for posting in fresh[:SCREEN_LIMIT]:
-            verdict, summary = _screen(posting, watch.company) if screen else ("", "")
+            company = posting.company or watch.company
+            verdict, summary = _screen(posting, company) if screen else ("", "")
             posting.text = posting.text[:TEXT_KEEP]
-            hits.append(Hit(watch_id=watch.id, company=watch.company, posting=posting.to_dict(),
+            hits.append(Hit(watch_id=watch.id, company=company, posting=posting.to_dict(),
                             verdict=verdict, summary=summary))
         added = store.add_hits(hits)
         seen |= {p.id for p in fresh[:SCREEN_LIMIT]}
@@ -258,6 +265,47 @@ def round_once(force: bool = False) -> list[tuple[str, dict]]:
     return results
 
 
+# Boards a Lenny's row can be followed to: the company's own page, read with
+# no row cap, which is how Lenny's works past the 50 it shows without a paid
+# subscription. Each template is the URL a person would paste.
+BOARD_URL = {
+    "greenhouse": "https://boards.greenhouse.io/{slug}", "lever": "https://jobs.lever.co/{slug}",
+    "ashby": "https://jobs.ashbyhq.com/{slug}", "bamboohr": "https://{slug}.bamboohr.com/careers",
+    "smartrecruiters": "https://careers.smartrecruiters.com/{company}",
+    "workday": "https://{host}/{site}",
+}
+FOLLOW_LIMIT = 15      # new watches per check; each is read once to prove it works
+
+
+def follow_boards(rows: list[Posting], limit: int = FOLLOW_LIMIT) -> list[str]:
+    """A watch on each company's own board behind a Lenny's row, so the
+    person sees every role there and not only the ones the page ranked.
+    A board already watched (same provider and arguments) or one that does
+    not read is skipped; nothing is queued here, a new watch's first check
+    only records what is listed. Returns the names added."""
+    from scout import DetectError, detect
+    have = {(w.provider, json.dumps(w.args, sort_keys=True)) for w in store.watches()}
+    added: list[str] = []
+    for row in rows:
+        if len(added) >= limit:
+            break
+        try:
+            provider, args, guess = detect(row.url)
+        except DetectError:
+            continue
+        if provider not in BOARD_URL or (provider, json.dumps(args, sort_keys=True)) in have:
+            continue
+        have.add((provider, json.dumps(args, sort_keys=True)))
+        watch = Watch(url=BOARD_URL[provider].format(**args), company=row.company or guess,
+                      provider=provider, args=args | {"via": "lennys"})
+        if not verify(watch).get("ok"):
+            continue
+        _, created = store.add_watch(watch)
+        if created:
+            added.append(watch.company)
+    return added
+
+
 def queue_hit(hit_id: str) -> dict:
     """Put a hit into autopilot: the same three steps as `/capture`. The
     pipeline starts, the fill still waits at checkpoint 1 like any job."""
@@ -267,7 +315,9 @@ def queue_hit(hit_id: str) -> dict:
     if hit is None:
         return {"ok": False, "reason": "no such hit"}
     p = hit.posting
-    job, created = queue.add(Job(url=p["url"], title=p["title"], company=hit.company, source="scout"))
+    watch = store.get_watch(hit.watch_id)
+    source = "lennys" if watch and "lennys" in (watch.provider, watch.args.get("via")) else "scout"
+    job, created = queue.add(Job(url=p["url"], title=p["title"], company=hit.company, source=source))
     if p.get("text"):
         postings.save_captured(job.id, postings.Saved(url=p["url"], title=p["title"], text=p["text"], company=hit.company))
     pid = runner.start_pipeline(job.id) if job.status.value == "queued" else None

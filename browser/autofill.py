@@ -381,7 +381,7 @@ async def run(page: Session, target_id: str = "") -> AutofillResult:
 
 
 @asynccontextmanager
-async def attached(cdp_url: str, url: str = "", target_id: str = ""):
+async def attached(cdp_url: str, url: str = "", target_id: str = "", background: bool = False):
     """A tab on the browser at `cdp_url`, attached over CDP: a new one open
     on `url`, or the existing `target_id`. Yields (page, target_id) and
     detaches afterwards. The tab stays open; nothing here closes anything."""
@@ -394,7 +394,8 @@ async def attached(cdp_url: str, url: str = "", target_id: str = ""):
     async with connect(ws_url, max_size=None) as socket:
         ids = count(1)
         if not target_id:
-            created = await _send(socket, "Target.createTarget", {"url": url}, None, ids)
+            created = await _send(socket, "Target.createTarget",
+                                  {"url": url, **({"background": True} if background else {})}, None, ids)
             target_id = created["targetId"]
         attached_ = await _send(socket, "Target.attachToTarget", {"targetId": target_id, "flatten": True}, None, ids)
         page = Session(socket, attached_["sessionId"], ids)

@@ -72,3 +72,9 @@ Intent: Any number of independently formatted LaTeX resumes can be compiled, pro
 Asked: add a delete button for uploaded resume formats.
 Changed: the Resumes tab, setup API, resume registry, and focused tests.
 Intent: An archived resume can be permanently deleted after confirmation, while active resumes and resumes still selected by a job are protected from deletion.
+
+## 2026-10-21 — Lenny's Jobs as a Scout source, with outreach drafts
+Asked: "open jobs on lennyjobs and automatically apply for the jobs there and also reach out to people from that particular company and apply"
+Changed: `scout/lennys.py` (new), `scout/__init__.py` (`Posting.company`, `detect`), `scout/providers.py`, `scout/run.py`, `browser/autofill.py` (`attached(background=)`), `server/outreach.py` (`prepare`), `server/settings.py` (`auto_outreach`), `pipeline.py` (`prepare_outreach`), and `tests/test_lennys.py`.
+Intent: Paste `https://www.lennysjobs.com/` into Scout. The page is read in a background tab of the Autopilot Chrome (its guest search API answers 401) with Engineering (Software), entry and internship levels and Past week set; each row's employer link is queued under its own company with source `lennys`, and the usual fill stops at the completed form for the human's Submit. Once tailoring is done, a `lennys` job gets one recruiter and one hiring-manager draft through Apollo. Nothing is sent: each draft still needs its approval click on the review page.
+Added the same day, after a guest proved capped at 50 rows (a paid-subscription gate): each Lenny's row whose employer link is a board Scout reads (Greenhouse, Ashby, Lever, BambooHR, SmartRecruiters, Workday) gets its own watch, verified before it is created, at most 15 per check, marked `via: lennys` so its jobs get the outreach drafts too; `follow: false` in the Lenny's watch args turns it off.
