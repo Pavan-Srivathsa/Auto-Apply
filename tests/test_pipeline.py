@@ -16,12 +16,18 @@ from tailor.tailor import TailorResult
 LETTER = "Dear Hiring Manager,\n\nOne paragraph.\n\nSincerely,\nJane Doe"
 
 
+def no_brief(*args, **kwargs):
+    raise pipeline.briefs.BriefError("no model in tests")
+
+
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     # Never the network: the letter step calls the model unless stubbed.
     monkeypatch.setattr(pipeline.cover, "write",
-                        lambda posting, tex, profile="", extra="", model=None: CoverLetter(LETTER, model or "test/model"))
+                        lambda posting, tex, profile="", extra="", model=None, brief="": CoverLetter(LETTER, model or "test/model"))
     # Same for the screen: it reads base/applicant.md and calls the model.
+    # No model reads the posting into a brief here; test_brief covers that.
+    monkeypatch.setattr(pipeline.briefs, "build", no_brief)
     monkeypatch.setattr(pipeline.screen_server, "screen_url",
                         lambda url, text, title="", force=False: (Screen(verdict="ok"), True))
     qpath = tmp_path / "queue.json"
@@ -348,7 +354,7 @@ def test_regenerating_only_the_cover_letter_keeps_the_resume_and_status(monkeypa
     queue.update(job.id, status=Status.FILLED)
     seen = {}
 
-    def letter(posting, tex, profile="", extra_instruction="", model=None):
+    def letter(posting, tex, profile="", extra_instruction="", model=None, brief=""):
         seen["instruction"] = extra_instruction
         return CoverLetter("Dear Hiring Manager,\n\nNew letter.\n\nBest,\nJane Doe", model or "test/model")
 
@@ -479,7 +485,7 @@ def test_the_jobs_model_reaches_the_resume_and_the_letter(monkeypatch):
         return TailorResult(tex="\\documentclass{article}\\begin{document}x\\end{document}",
                             suggestions="- swapped a project", diff="", model="test/model")
 
-    def letter(posting, tex, profile="", extra="", model=None):
+    def letter(posting, tex, profile="", extra="", model=None, brief=""):
         seen["letter"] = model
         return CoverLetter(LETTER, "test/model")
 

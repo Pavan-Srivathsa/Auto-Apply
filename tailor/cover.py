@@ -73,8 +73,10 @@ def system_prompt() -> str:
     return prompts.text("cover") + "\n" + prompts.text("cover.format")
 
 
-def _user_message(posting: Posting, resume_tex: str, profile: str, extra: str) -> str:
+def _user_message(posting: Posting, resume_tex: str, profile: str, extra: str, brief: str = "") -> str:
     sections = [f"## Job posting\n\n{posting.to_markdown()}"]
+    if brief:
+        sections.append(brief)
     if profile:
         sections.append("## Candidate profile\n\n" + profile)
     sections.append(f"## The tailored resume, as LaTeX\n\n```tex\n{resume_tex}\n```")
@@ -134,13 +136,13 @@ def strip_dashes(text: str) -> str:
 
 
 def write(posting: Posting, resume_tex: str, profile: str = "", extra_instruction: str = "",
-          model: Optional[str] = None) -> CoverLetter:
+          model: Optional[str] = None, brief: str = "") -> CoverLetter:
     """Ask for the letter, again while it breaks a rule that is checkable.
 
     The letter follows the resume's model: a job tailored with Opus gets its
     letter from Opus too, so the two documents a human reads sound alike."""
     system = system_prompt()
-    user = _user_message(posting, resume_tex, profile, extra_instruction)
+    user = _user_message(posting, resume_tex, profile, extra_instruction, brief)
     model = model or llm.tailor_model()
     last, last_problems = "", []
     for attempt in range(1, ATTEMPTS + 1):

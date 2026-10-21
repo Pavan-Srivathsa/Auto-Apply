@@ -723,7 +723,7 @@ def load_profile(path: Optional[Path] = None, stories: Optional[list[str]] = Non
 
 
 def _build_user_message(posting: Posting, resume: str, profile: str,
-                        width: Optional[int] = None) -> str:
+                        width: Optional[int] = None, brief: str = "") -> str:
     width = width or layout.chars_per_line()
     rows = [
         (f"bullet {i}", lines, cap, used)
@@ -743,6 +743,10 @@ def _build_user_message(posting: Posting, resume: str, profile: str,
     )
 
     sections = [f"## Job posting\n\n{posting.to_markdown()}"]
+    if brief:
+        # Read once for every document (tailor.brief): the requirements to lead
+        # with and the evidence for each. Context, never a source of facts.
+        sections.append(brief)
     if profile:
         sections.append(
             "## Candidate profile (background not necessarily on the resume)\n\n" + profile
@@ -795,6 +799,7 @@ def tailor(
     profile: Optional[str] = None,
     model: Optional[str] = None,
     layout_pdf: Optional[Path] = None,
+    brief: str = "",
 ) -> TailorResult:
     """Tailor the resume, retrying while it does not fit on `target_pages`.
 
@@ -810,7 +815,7 @@ def tailor(
     model = model or llm.tailor_model()
     width = layout.chars_per_line(layout_pdf)
 
-    message = _build_user_message(posting, original, profile, width)
+    message = _build_user_message(posting, original, profile, width, brief)
     if extra_instruction.strip():
         # The reviewer's words carry more weight than the model's own earlier
         # judgement, but not more than the rules: they are appended to the

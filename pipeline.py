@@ -25,6 +25,7 @@ from browser import autofill, chrome
 from server import postings, queue, runner, seen, settings
 from server import screen as screen_server
 from server.models import Job, Status
+from tailor import brief as briefs
 from tailor import cover, fetch, layout, profile, quality, resume_bases, tailor
 from tex import compile as texc
 from tex import mark
@@ -211,15 +212,18 @@ def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
     if base.pdf_path.exists():
         store.write(app_dir, "master_resume.pdf", base.pdf_path.read_bytes())
     resume_bases.copy_assets(base, app_dir)
+    profile_text = tailor.load_profile(stories=stories)
+    brief = write_brief(app_dir, posting, master, profile_text)
     result = tailor.tailor(
         posting,
         resume_tex=master,
         page_check=make_page_check(base_tex),
         target_pages=target,
         extra_instruction=extra_instruction,
-        profile=tailor.load_profile(stories=stories),
+        profile=profile_text,
         model=model,
         layout_pdf=base.pdf_path,
+        brief=brief.as_message() if brief else "",
     )
     store.write(app_dir, "resume.tex", result.tex)
     store.write(app_dir, "resume.diff", result.diff or "(no changes)\n")
@@ -470,6 +474,22 @@ def pick_stories(app_dir: Path, posting) -> list[str]:
     return stories
 
 
+def write_brief(app_dir: Path, posting, master: str, profile_text: str) -> Optional[briefs.Brief]:
+    """What the job asks for and the candidate's evidence for each, read once
+    and given to every document. Not fatal: without it the writers run as
+    they did before, and the reason is kept next to the documents."""
+    try:
+        brief = briefs.build(posting.text, master, profile_text)
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        store.write(app_dir, "brief_error.txt", f"{type(exc).__name__}: {exc}\n")
+        print(f"  brief failed: {exc}", file=sys.stderr)
+        return None
+    briefs.save(app_dir, brief)
+    gaps = sum(1 for r in brief.musts() if r.gap)
+    print(f"  brief: {len(brief.requirements)} requirements, {gaps} required without evidence")
+    return brief
+
+
 def write_cover_letter(app_dir: Path, posting, resume_tex: str, extra_instruction: str = "",
                        stories: Optional[list[str]] = None, model: Optional[str] = None) -> str:
     """Write the letter next to the resume. Returns a one-line note for the status.
@@ -481,8 +501,9 @@ def write_cover_letter(app_dir: Path, posting, resume_tex: str, extra_instructio
     not.
     """
     try:
+        brief = briefs.load(app_dir)
         letter = cover.write(posting, resume_tex, tailor.load_profile(stories=stories),
-                             extra_instruction, model=model)
+                             extra_instruction, model=model, brief=brief.as_message() if brief else "")
         store.write(app_dir, "cover_letter.md", letter.text + "\n")
         store.write(app_dir, "cover_letter.tex", cover.to_tex(letter.text))
         texc.compile_pdf(app_dir / "cover_letter.tex", app_dir / "cover_letter.pdf")
