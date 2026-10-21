@@ -245,10 +245,14 @@ def _fit(app_dir: Path) -> Optional[dict]:
              "in_letter": briefs.covered(r, letter) if letter else None}
             for r in brief.requirements]
     answerable = [row for row in rows if row["kind"] == "must" and not row["gap"]]
-    try:
-        review = json.loads(read("cover_review.json") or "{}")
-    except ValueError:
-        review = {}
+    def scored(name: str) -> Optional[dict]:
+        try:
+            review = json.loads(read(name) or "{}")
+        except ValueError:
+            return None
+        return {"score": review.get("score"), "first": review.get("first_score"),
+                "judge": review.get("judge"), "rounds": review.get("rounds")} if review.get("score") else None
+
     return {
         "role": brief.role,
         "rows": rows,
@@ -256,8 +260,8 @@ def _fit(app_dir: Path) -> Optional[dict]:
         "musts_gap": sum(1 for row in rows if row["kind"] == "must" and row["gap"]),
         "in_resume": sum(1 for row in answerable if row["in_resume"]),
         "judged_by_jev": any(row["strength"] is not None for row in rows),
-        "letter": {"score": review.get("score"), "first": review.get("first_score"),
-                   "judge": review.get("judge"), "rounds": review.get("rounds")} if review.get("score") else None,
+        "letter": scored("cover_review.json"),
+        "resume": scored("resume_review.json"),
     }
 
 

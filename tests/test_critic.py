@@ -25,7 +25,7 @@ def jev_answers(levels, invented=0.1):
     def ask(state, questions, model=None, client=None):
         assert set(questions) == {p.name for p in critic.EMAIL} | {"invented"}
         assert state["brief"][1]["evidence"] is None             # a gap goes to Jev as null
-        assert "sources" not in state or "resumeItem" not in state["sources"]   # sources as plain text
+        assert "sources" not in state or "resumeItem" not in str(state["sources"])   # sources as plain text
         out = {name: {"type": "score", "score": level} for name, level in levels.items()}
         out["invented"] = {"type": "noul", "noul": invented}
         return out
@@ -45,7 +45,7 @@ def test_an_inventing_draft_is_capped_and_told_to_stop(monkeypatch):
     monkeypatch.setenv(jev.API_KEY_ENV, "key")
     monkeypatch.setattr(jev, "ask", jev_answers({p.name: 2 for p in critic.EMAIL}, invented=0.9))
     c = critic.judge("email", "Airflow, 2M rows a day, and I ran Spark on 10TB.", BRIEF,
-                     sources=r"\resumeItem{Built an Airflow pipeline moving 2M rows a day}")
+                     sources={"resume": r"\resumeItem{Built an Airflow pipeline moving 2M rows a day}"})
     assert c.score == critic.INVENTED_CAP and "claim nothing new" in c.fixes[0]
 
 
@@ -74,9 +74,10 @@ def scripted(scores):
     """A judge that returns these scores in order, with one fix while below 8."""
     it = iter(scores)
 
-    def judge(kind, document, brief, subject="", sources=""):
+    def judge(kind, document, brief, subject="", sources=None):
         s = next(it)
-        return critic.Critique(score=s, fixes=[] if s >= critic.THRESHOLD else ["make it better"], judge="test")
+        return critic.Critique(score=s, fixes=[] if s >= critic.THRESHOLD else ["make it better"], judge="test",
+                               raw=s / 5)
     return judge
 
 
@@ -134,3 +135,46 @@ def test_the_email_writer_revises_with_the_notes_and_keeps_its_rules(monkeypatch
     assert written.review["score"] == 9 and written.review["first_score"] == 6
     assert "An editor's notes" in asked[1] and "make it better" in asked[1]
     assert "What this job asks for" in asked[1]                  # the brief goes with the revision
+
+
+def test_the_resume_review_keeps_a_better_revision_with_its_diff_against_the_master(tmp_path, monkeypatch):
+    import pipeline
+    from tailor import tailor
+    master = r"\begin{document}\resumeItem{Responsible for pipelines}\end{document}"
+    first = tailor.TailorResult(tex=master.replace("Responsible for", "Ran"), suggestions="- first pass",
+                                diff="", model="m", attempts=2, rejections=["attempt 1: x"])
+    asked = {}
+
+    def again(posting, **kw):
+        asked.update(kw)
+        return tailor.TailorResult(tex=master.replace("Responsible for pipelines", "Cut pipeline cost 30%"),
+                                   suggestions="- revision", diff="vs tailored", model="m")
+
+    monkeypatch.setattr(pipeline.tailor, "tailor", again)
+    monkeypatch.setattr(pipeline, "make_page_check", lambda path: None)
+    monkeypatch.setattr(pipeline, "base_page_count", lambda *a: 1)
+    monkeypatch.setattr(critic, "judge", scripted([5, 8]))
+    base = type("Base", (), {"tex_path": tmp_path / "r.tex", "pdf_path": tmp_path / "r.pdf"})()
+    kept = pipeline.review_resume(tmp_path, object(), master, first, BRIEF, "", base, None)
+    assert "Cut pipeline cost 30%" in kept.tex and asked["revision"] is True
+    assert asked["resume_tex"] == first.tex                       # revised from the tailored resume, not the master
+    assert "Responsible for pipelines" in kept.diff                # the diff is still against the master
+    assert "Revised after review** (5 to 8/10)" in kept.suggestions and kept.attempts == 2
+    assert json.loads((tmp_path / "resume_review.json").read_text())["score"] == 8
+
+
+def test_a_resume_revision_that_fails_tailoring_leaves_the_first_one(tmp_path, monkeypatch):
+    import pipeline
+    from tailor import tailor
+    first = tailor.TailorResult(tex="tailored", suggestions="s", diff="d", model="m")
+
+    def refuses(posting, **kw):
+        raise tailor.TailorError("gave up after 4 attempts; last problem: compiled to 2 pages")
+
+    monkeypatch.setattr(pipeline.tailor, "tailor", refuses)
+    monkeypatch.setattr(pipeline, "make_page_check", lambda path: None)
+    monkeypatch.setattr(pipeline, "base_page_count", lambda *a: 1)
+    monkeypatch.setattr(critic, "judge", scripted([5]))
+    base = type("Base", (), {"tex_path": tmp_path / "r.tex", "pdf_path": tmp_path / "r.pdf"})()
+    assert pipeline.review_resume(tmp_path, object(), "master", first, BRIEF, "", base, None) is first
+    assert "revision failed" in json.loads((tmp_path / "resume_review.json").read_text())["trace"][-1]["error"]

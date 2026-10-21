@@ -13,8 +13,8 @@ answers in JSON. Either way coverage of the brief is counted in code, and
 the fixes the writer gets are fixed sentences tied to the weak points, so
 the loop never depends on the judge writing good advice.
 
-A revision counts only when it passes the writer's own checks and scores
-strictly higher; on any failure the best text so far is returned. So the
+A revision counts only when it passes the writer's own checks and its exact
+rubric mean beats the draft's by MARGIN (the 1..10 score rounds real gains away); on any failure the best text so far is returned. So the
 loop can only improve a document, and every round is in the trace for the
 review page.
 """
@@ -32,9 +32,10 @@ from . import jev, llm, prompts
 ROUNDS = 2             # revisions after the first draft
 THRESHOLD = 10         # stop early only at a perfect score; otherwise while any point needs a fix
 FIX_BELOW = 1.5        # a point under this (0..2) gets its fix; "fair" is not good enough to send
-TOP = {"email": 1, "cover": 3}   # the brief's top required items a document must answer
+TOP = {"email": 1, "cover": 3, "resume": 8}   # the brief's top required items a document must answer
 INVENTED = 0.5         # Jev's probability above which a draft claims something it may not
 INVENTED_CAP = 3       # the score an inventing draft cannot rise above
+MARGIN = 0.03          # on the 0..2 mean: a revision must beat the draft by this much, not by noise
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,25 @@ COVER = (
           "'fit' and the like."),
 )
 
-RUBRICS = {"email": EMAIL, "cover": COVER}
+RESUME = (
+    Point("requirements", "Are the top required items in `brief` visible in `draft`, in the posting's own words?",
+          ("Most are missing, or only in the skills list", "Some lead their section; others are buried or reworded",
+           "Each one with evidence is visible near the top of its section, using the posting's terms"),
+          "Bring the required items that have evidence to the top of their sections, named in the posting's "
+          "words, without adding any fact."),
+    Point("bullets", "Do the bullets in `draft` lead with what was achieved, with a real measure?",
+          ("Duties ('Responsible for', 'Worked on'), no results", "Mixed: some results, some duties",
+           "Each bullet leads with the result or a strong verb and keeps its real measure"),
+          "Rewrite duty-style bullets to lead with the result and its measure from the master resume, keeping "
+          "each bullet's printed length."),
+    Point("order", "Do the summary, the skills order and the bullet order in `draft` put what this job wants first?",
+          ("Generic order; what the job wants is buried", "Partly reordered",
+           "Summary, skills and entries lead with what this job asks for"),
+          "Reorder the summary, the skills lines, and the bullets inside each role so what this job asks "
+          "for comes first. Keep the roles themselves in their date order."),
+)
+
+RUBRICS = {"email": EMAIL, "cover": COVER, "resume": RESUME}
 
 
 @dataclass
@@ -102,6 +121,7 @@ class Critique:
     fixes: list[str] = field(default_factory=list)
     judge: str = ""                                  # "jev" | the text model's name
     invented: Optional[float] = None
+    raw: float = 0.0                                 # the exact 0..2 mean behind `score`; what the loop compares
 
 
 @dataclass
@@ -115,7 +135,7 @@ class Refined:
 
     @property
     def improved(self) -> bool:
-        return self.score > self.first_score > 0
+        return any(row.get("kept") for row in self.trace)
 
     def to_dict(self) -> dict:
         return {k: v for k, v in asdict(self).items() if k != "text"} | {"improved": self.improved}
@@ -142,15 +162,29 @@ def _to_ten(levels: list[float]) -> int:
     return max(1, min(10, round(1 + 9 * (sum(levels) / (2 * len(levels))))))
 
 
-def _state(document: str, brief: Optional[briefs.Brief], subject: str = "", sources: str = "") -> dict:
+def _scored(rubric, points: dict, invented: float) -> tuple[int, float, list[str]]:
+    """Score 1..10 for people, the exact mean for the loop, and the fixes."""
+    raw = sum(points.values()) / len(points)
+    fixes = [p.fix for p in rubric if points[p.name] < FIX_BELOW]
+    score = _to_ten(list(points.values()))
+    if invented > INVENTED:
+        cap = 2 * (INVENTED_CAP - 1) / 9
+        score, raw = min(score, INVENTED_CAP), min(raw, cap)
+        fixes.insert(0, "Remove every claim that the brief's evidence does not support; claim nothing new.")
+    return score, round(raw, 4), fixes
+
+
+def _state(document: str, brief: Optional[briefs.Brief], subject: str = "",
+           sources: Optional[dict] = None) -> dict:
     state = {"draft": document}
     if subject:
         state["subject"] = subject
     if sources:
-        # Everything the candidate may claim: the resume and the stories. The
-        # brief's quotes alone are too few; a true line from the resume that the
-        # brief did not quote read as invented.
-        state["sources"] = " ".join(briefs._plain(sources).split())
+        # Everything the candidate may claim, kept as labelled parts. One
+        # concatenated blob of resume and stories made Jev call the untouched
+        # master resume invented (0.67); labelled, the same check reads 0.22.
+        state["sources"] = {name: " ".join(briefs._plain(text).split())
+                            for name, text in sources.items() if text and text.strip()}
     if brief:
         state["brief"] = [{"asks": r.text, "required": r.kind == "must", "evidence": r.evidence or None}
                           for r in brief.requirements]
@@ -158,28 +192,25 @@ def _state(document: str, brief: Optional[briefs.Brief], subject: str = "", sour
 
 
 def judge_jev(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "",
-              sources: str = "") -> Critique:
+              sources: Optional[dict] = None) -> Critique:
     rubric = RUBRICS[kind]
     questions = {p.name: jev.score(p.question, list(p.levels)) for p in rubric}
     questions["invented"] = jev.noul(
-        {"question": "Does `draft` claim a skill, employer, achievement, number or relationship that "
-                     "`sources` does not support?",
-         "focus": "Judge only what the candidate claims to have done or know, against `sources`. Opinions and "
-                  "interest in the role are not claims."},
-        {"true": "It claims something `sources` does not support", "false": "Every claim traces to `sources`"})
+        {"question": "Does `draft` claim a skill, employer, achievement, number or relationship that neither "
+                     "`sources.resume` nor `sources.stories` supports?",
+         "focus": "Rewording, reordering and the posting's vocabulary for the same work are fine, and so are "
+                  "opinions and interest in the role. Only a fact with no support in either source counts."},
+        {"true": "At least one claim has no support in either source",
+         "false": "Every claim is supported by a source"})
     answers = jev.ask(_state(document, brief, subject, sources), questions)
     points = {p.name: float(answers[p.name]["score"]) for p in rubric}
     invented = float(answers["invented"]["noul"])
-    score = _to_ten(list(points.values()))
-    fixes = [p.fix for p in rubric if points[p.name] < FIX_BELOW]
-    if invented > INVENTED:
-        score = min(score, INVENTED_CAP)
-        fixes.insert(0, "Remove every claim that the brief's evidence does not support; claim nothing new.")
-    return Critique(score=score, points=points, fixes=fixes, judge="jev", invented=invented)
+    score, raw, fixes = _scored(rubric, points, invented)
+    return Critique(score=score, points=points, fixes=fixes, judge="jev", invented=invented, raw=raw)
 
 
 def judge_text(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "",
-               sources: str = "", model: Optional[str] = None) -> Critique:
+               sources: Optional[dict] = None, model: Optional[str] = None) -> Critique:
     rubric = RUBRICS[kind]
     lines = [f"- {p.name}: {p.question} Levels: 0 = {p.levels[0]}; 1 = {p.levels[1]}; 2 = {p.levels[2]}."
              for p in rubric]
@@ -194,16 +225,12 @@ def judge_text(kind: str, document: str, brief: Optional[briefs.Brief], subject:
     data = json.loads(match.group(1) if match else reply)
     points = {p.name: max(0.0, min(2.0, float(data[p.name]))) for p in rubric}
     invented = 1.0 if data.get("invented") else 0.0
-    score = _to_ten(list(points.values()))
-    fixes = [p.fix for p in rubric if points[p.name] < FIX_BELOW]
-    if invented > INVENTED:
-        score = min(score, INVENTED_CAP)
-        fixes.insert(0, "Remove every claim that the brief's evidence does not support; claim nothing new.")
-    return Critique(score=score, points=points, fixes=fixes, judge=model, invented=invented)
+    score, raw, fixes = _scored(rubric, points, invented)
+    return Critique(score=score, points=points, fixes=fixes, judge=model, invented=invented, raw=raw)
 
 
 def judge(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "",
-          sources: str = "") -> Critique:
+          sources: Optional[dict] = None) -> Critique:
     """Jev when configured, else the text model. Coverage fixes from code come
     first: an unanswered requirement with evidence is the most useful note."""
     critique = (judge_jev if jev.configured() else judge_text)(kind, document, brief, subject, sources)
@@ -218,11 +245,11 @@ def refine(kind: str, draft: str, brief: Optional[briefs.Brief],
            rounds: int = ROUNDS, threshold: int = THRESHOLD,
            subject_of: Callable[[str], str] = lambda text: "",
            body_of: Callable[[str], str] = lambda text: text,
-           sources: str = "") -> Refined:
+           sources: Optional[dict] = None) -> Refined:
     """Improve `draft`. `revise(text, fixes)` returns a new full text (it may
     raise); `check(text)` lists the writer's rule problems, and a revision
     with any is discarded. `subject_of` / `body_of` split an email held as one
-    string. `sources` is what the candidate may claim (resume and stories).
+    string. `sources` is what the candidate may claim: {"resume": ..., "stories": ...}.
     Never raises."""
     def judged(text: str) -> Critique:
         return judge(kind, body_of(text), brief, subject_of(text), sources)
@@ -232,7 +259,8 @@ def refine(kind: str, draft: str, brief: Optional[briefs.Brief],
     except Exception as exc:  # noqa: BLE001 - the loop is an extra
         return Refined(text=draft, trace=[{"round": 0, "error": f"no judge: {str(exc)[:120]}"}])
     result = Refined(text=draft, score=best.score, first_score=best.score, judge=best.judge,
-                     trace=[{"round": 0, "score": best.score, "points": best.points, "fixes": best.fixes}])
+                     trace=[{"round": 0, "score": best.score, "raw": best.raw, "points": best.points,
+                             "fixes": best.fixes}])
     for n in range(1, rounds + 1):
         if best.score >= threshold or not best.fixes:
             break
@@ -250,8 +278,9 @@ def refine(kind: str, draft: str, brief: Optional[briefs.Brief],
         except Exception as exc:  # noqa: BLE001
             result.trace.append({"round": n, "error": f"no judge: {str(exc)[:120]}"})
             break
-        kept = now.score > result.score
-        result.trace.append({"round": n, "score": now.score, "points": now.points, "fixes": now.fixes, "kept": kept})
+        kept = now.raw > best.raw + MARGIN
+        result.trace.append({"round": n, "score": now.score, "raw": now.raw, "points": now.points,
+                             "fixes": now.fixes, "kept": kept})
         if not kept:
             break
         result.text, result.score, result.rounds, best = candidate, now.score, n, now

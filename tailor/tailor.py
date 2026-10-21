@@ -800,6 +800,7 @@ def tailor(
     model: Optional[str] = None,
     layout_pdf: Optional[Path] = None,
     brief: str = "",
+    revision: bool = False,
 ) -> TailorResult:
     """Tailor the resume, retrying while it does not fit on `target_pages`.
 
@@ -890,7 +891,9 @@ def tailor(
         # How much moved. Rejected while there are attempts left, carried as a
         # warning on the last one: a thin resume is worth seeing on the review
         # page, a failed job is not.
-        thin = under_tailored(original, tailored)
+        # A revision (the critic loop) starts from a resume already tailored:
+        # asking it to rewrite half the bullets again would be churn, not tailoring.
+        thin = None if revision else under_tailored(original, tailored)
         if thin:
             if attempt < max_attempts:
                 last_error = thin

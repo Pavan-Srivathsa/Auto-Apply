@@ -738,8 +738,9 @@ function fitHtml(fit) {
       ${r.gap ? `<td class="gap">Nothing on file. Left out rather than claimed.</td>`
               : `<td class="have"><q>${escape(r.evidence)}</q><span class="src">${escape(r.where === "profile" ? "story" : "resume")}</span>${pct(r.strength)}</td>`}
       <td class="marks">${mark(r.in_resume, "resume")}<br>${mark(r.in_letter, "letter")}</td></tr>`).join("");
-  const letterScore = fit.letter ? `<span>Cover letter <strong>${fit.letter.score}/10</strong>${
-      fit.letter.first && fit.letter.first !== fit.letter.score ? ` <span class="hint">from ${fit.letter.first}</span>` : ""}</span>` : "";
+  const scoreOf = (label, r) => r ? `<span>${label} <strong>${r.score}/10</strong>${
+      r.first && r.first !== r.score ? ` <span class="hint">from ${r.first}</span>` : ""}</span>` : "";
+  const letterScore = scoreOf("Resume", fit.resume) + scoreOf("Cover letter", fit.letter);
   return `<h3>What they want, what you have</h3>
     <div class="card fit">
       <div class="sum">

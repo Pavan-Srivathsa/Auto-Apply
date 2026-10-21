@@ -225,6 +225,7 @@ def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
         layout_pdf=base.pdf_path,
         brief=brief.as_message() if brief else "",
     )
+    result = review_resume(app_dir, posting, master, result, brief, profile_text, base, model)
     store.write(app_dir, "resume.tex", result.tex)
     store.write(app_dir, "resume.diff", result.diff or "(no changes)\n")
     store.write(
@@ -474,6 +475,46 @@ def pick_stories(app_dir: Path, posting) -> list[str]:
     return stories
 
 
+RESUME_ROUNDS = 1   # each revision is a full tailoring pass with compiles; one is the budget
+
+
+def review_resume(app_dir: Path, posting, master: str, result, brief, profile_text: str,
+                  base, model: Optional[str]):
+    """Judge the tailored resume against the brief and revise it once while
+    it improves (tailor.critic). The revision starts from the tailored resume
+    and goes through every check tailoring has (lines, counts, links,
+    invented figures, the page count), so a revision that breaks one is
+    never kept. The diff stays against the master."""
+    revised: dict = {}
+
+    def revise(tex: str, fixes: list[str]) -> str:
+        again = tailor.tailor(
+            posting, resume_tex=tex, page_check=make_page_check(base.tex_path),
+            target_pages=base_page_count(base.tex_path, base.pdf_path),
+            extra_instruction="An editor reviewed this tailored resume. Apply these notes:\n"
+                              + "\n".join(f"- {fix}" for fix in fixes),
+            profile=profile_text, model=model, layout_pdf=base.pdf_path,
+            brief=brief.as_message() if brief else "", revision=True)
+        revised[again.tex] = again
+        return again.tex
+
+    review = critic.refine("resume", result.tex, brief, revise, rounds=RESUME_ROUNDS,
+                           body_of=lambda tex: " ".join(briefs._plain(tex).split()),
+                           sources={"resume": master, "stories": profile_text})
+    store.write(app_dir, "resume_review.json", json.dumps(review.to_dict(), indent=2) + "\n")
+    if review.text == result.tex:
+        return result
+    kept = revised[review.text]
+    kept.diff = tailor.make_diff(master, kept.tex)
+    kept.suggestions = (result.suggestions + "\n\n**Revised after review** "
+                        f"({review.first_score} to {review.score}/10): "
+                        + "; ".join(review.trace[0].get("fixes", [])[:3]))
+    kept.rejections = result.rejections + kept.rejections
+    kept.warnings = result.warnings + kept.warnings
+    kept.attempts = result.attempts
+    return kept
+
+
 def write_brief(app_dir: Path, posting, master: str, profile_text: str) -> Optional[briefs.Brief]:
     """What the job asks for and the candidate's evidence for each, read once
     and given to every document. Not fatal: without it the writers run as
@@ -513,7 +554,7 @@ def write_cover_letter(app_dir: Path, posting, resume_tex: str, extra_instructio
             revise=lambda text, fixes: cover.revise(posting, resume_tex, profile_text, text, fixes,
                                                     model=model, brief=brief_text),
             check=cover.problems,
-            sources=resume_tex + "\n" + profile_text,
+            sources={"resume": resume_tex, "stories": profile_text},
         )
         letter.text = review.text
         store.write(app_dir, "cover_review.json", json.dumps(review.to_dict(), indent=2) + "\n")

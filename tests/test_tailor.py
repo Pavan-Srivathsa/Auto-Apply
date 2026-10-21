@@ -511,3 +511,13 @@ def test_a_thin_run_on_the_last_attempt_is_a_warning_not_a_failure(monkeypatch):
     assert result.tex.strip() == thin.strip()
     assert any("EXPERIENCE bullets were rewritten" in w for w in result.warnings)
     assert any("bullet 2" in r for r in result.rejections)
+
+
+def test_a_revision_of_a_tailored_resume_is_not_held_to_the_rewrite_floor(monkeypatch):
+    """The critic loop revises a resume already tailored; asking it to rewrite
+    half the bullets again would be churn. Every other check still applies."""
+    monkeypatch.setattr(tailor, "MIN_REWRITE", 1.0)
+    thin = ORIGINAL.replace("Built a scalable Python service", "Built a scalable Python backend")
+    sent = stub_model(monkeypatch, reply(thin))
+    result = tailor.tailor(POSTING, resume_tex=ORIGINAL, revision=True)
+    assert len(sent) == 1 and result.attempts == 1 and not result.warnings
