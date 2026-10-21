@@ -162,3 +162,71 @@ def draft(context: Context, contact: Contact, job_title: str, company: str,
         model=written.model,
         review=written.review or {},
     )
+
+
+# -------------------------------------------------------------- follow-up --
+FOLLOWUP_WORDS = (35, 100)
+
+FOLLOWUP_PROMPT = """You write a short follow-up from a job candidate to someone who has not answered
+their first email about a role. It goes in the same thread, under the earlier message.
+
+- 40 to 90 words. Plain text, no markdown, no lists, no dashes used as punctuation.
+- Open by naming the role, not by apologising or "bumping". Never "just following up", "circling
+  back", "bumping this", "I know you're busy", or any guilt.
+- Add ONE new, true reason to talk: a different item from the brief's evidence than the earlier
+  email used, stated with its real measure. Never repeat the earlier proof point.
+- Keep the same small ask: are they the right person, or could they point the candidate to the
+  hiring team. One question.
+- Use only facts in the brief's evidence, the resume and the profile. Invent nothing.
+- Close with "Best," and the candidate's name.
+
+Reply with exactly one fenced block and nothing else:
+
+```email
+<plain-text email>
+```
+"""
+
+
+def followup_problems(body: str) -> list[str]:
+    found = []
+    words = len(body.split())
+    low, high = FOLLOWUP_WORDS
+    if not low <= words <= high:
+        found.append(f"the follow-up was {words} words; use {low} to {high}")
+    if not re.search(r"^Best,\s*$", body, re.I | re.M):
+        found.append('the follow-up did not close with "Best," and the candidate name')
+    if re.search(r"^\s*[-*#>]", body, re.M) or "**" in body:
+        found.append("the follow-up used markdown or a list")
+    if cover.has_dash(body):
+        found.append("the follow-up used a dash as punctuation")
+    if re.search(r"follow(ing)?[ -]up on|following up|circling back|bump(ing)? this|i know you'?re busy|"
+                 r"checking in|touching base", body, re.I):
+        found.append("the follow-up used a guilt or bump phrase")
+    return found
+
+
+def write_followup(context: Context, contact: Contact, earlier: list[Draft], n: int,
+                   candidate_name: str, brief: Optional[briefs.Brief] = None,
+                   model: Optional[str] = None) -> Written:
+    """Follow-up `n` to the thread `earlier` (oldest first). Its subject is the
+    first email's, as a reply. Raises OutreachError after ATTEMPTS."""
+    if not earlier:
+        raise OutreachError("a follow-up needs the email it follows")
+    model = model or llm.tailor_model()
+    thread = "\n\n".join(f"### {'First email' if d.followup == 0 else f'Follow-up {d.followup}'}\n\n{d.body}"
+                          for d in earlier)
+    user = (context.as_message() + ("\n\n" + brief.as_message() if brief else "")
+            + f"\n\n## Recipient\n\nName: {contact.name}\nTitle: {contact.title or 'unknown'}"
+            + f"\nCandidate name: {candidate_name}\n\n## The thread so far, no answer yet\n\n{thread}"
+            + f"\n\nWrite follow-up {n}.")
+    last: list[str] = []
+    for attempt in range(1, ATTEMPTS + 1):
+        reply = llm.complete(prompts.text("outreach.followup"), user, model=model, temperature=0.4, max_tokens=800)
+        body = _block(reply, "email").strip()
+        last = followup_problems(body)
+        if not last:
+            subject = earlier[0].subject
+            return Written(subject if subject.lower().startswith("re:") else f"Re: {subject}", body, model, attempt)
+        user += "\n\n## Previous reply rejected\n\n" + "; ".join(last) + ". Write it again."
+    raise OutreachError(f"follow-up broke the rules on {ATTEMPTS} attempts: " + "; ".join(last))

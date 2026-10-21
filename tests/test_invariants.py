@@ -94,10 +94,14 @@ def test_automation_cannot_reach_outbound_mail():
     paths = [ROOT / "pipeline.py", ROOT / "apply.py"]
     paths += list((ROOT / "browser").rglob("*.py"))
     paths += list((ROOT / "tailor").rglob("*.py"))
+    # The outreach watcher drafts follow-ups and posts to Slack on its own;
+    # it reaches the inbox read-only and never a sender.
+    paths += [ROOT / "outreach" / name for name in ("watch.py", "replies.py", "slack.py", "drafting.py")]
     for path in paths:
         source = path.read_text()
         assert "import mailing" not in source and "from mailing" not in source, path
-        assert "send_message(" not in source, path
+        assert "send_message(" not in source and "smtplib" not in source, path
+        assert "import server.outreach" not in source and "from server import outreach" not in source, path
 
     route = (ROOT / "server" / "outreach.py").read_text()
     assert "confirmed" in route and "mailing.send_message(msg)" in route

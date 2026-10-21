@@ -8,7 +8,7 @@ import pytest
 import mailing
 import pipeline
 from archive import store as archive
-from outreach import apollo
+from outreach import apollo, drafting
 from outreach import store as outreach_store
 from outreach.models import Contact, Draft
 from scout import Watch, detect, lennys, providers, run, store
@@ -106,8 +106,8 @@ def contact(role, name, email=""):
 def stub_drafting(monkeypatch, folder):
     sent = []
     monkeypatch.setattr(mailing, "send_message", lambda message: sent.append(message))
-    monkeypatch.setattr(outreach_api, "_candidate_name", lambda app_dir: "Jane Doe")
-    monkeypatch.setattr(outreach_api, "_context", lambda app_dir: object())
+    monkeypatch.setattr(drafting, "candidate_name", lambda app_dir: "Jane Doe")
+    monkeypatch.setattr(drafting, "context", lambda app_dir: object())
     monkeypatch.setattr(writer, "draft", lambda ctx, c, title, company, name, attach, folder_name, brief=None:
                         Draft.create(c.id, f"Note for {c.name}", f"Hi {c.name}, a grounded note.", resume_folder=folder.name))
     return sent
@@ -120,24 +120,24 @@ def test_outreach_writes_a_draft_per_role_and_sends_nothing(tmp_path, monkeypatc
              contact("hiring_manager", "Morgan", "morgan@acme.com")]
     monkeypatch.setattr(apollo, "discover", lambda company, per_role: found)
     sent = stub_drafting(monkeypatch, folder)
-    line = outreach_api.prepare(job.id)
+    line = drafting.prepare(job.id)
     state = outreach_store.get(job.id)
     assert len(state.drafts) == 2 and all(d.status == "draft" for d in state.drafts)    # one recruiter, one manager
     assert {d.contact_id for d in state.drafts} == {found[0].id, found[2].id}
     assert sent == [] and "nothing sent" in line
     # Running it again does not write a second set or spend more credits.
-    assert "already exist" in outreach_api.prepare(job.id)
+    assert "already exist" in drafting.prepare(job.id)
 
 
 def test_outreach_without_an_apollo_key_does_nothing(tmp_path):
     job, _ = application(tmp_path)
-    assert "no Apollo key" in outreach_api.prepare(job.id)
+    assert "no Apollo key" in drafting.prepare(job.id)
     assert outreach_store.get(job.id).drafts == []
 
 
 def test_the_pipeline_prepares_outreach_for_lennys_jobs_only_and_the_switch_stops_it(tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(outreach_api, "prepare", lambda job_id: calls.append(job_id) or "ok")
+    monkeypatch.setattr(drafting, "prepare", lambda job_id: calls.append(job_id) or "ok")
     lenny, _ = application(tmp_path)
     other = lenny.model_copy(update={"source": "scout"})
     pipeline.prepare_outreach(other)
@@ -152,7 +152,7 @@ def test_the_pipeline_prepares_outreach_for_lennys_jobs_only_and_the_switch_stop
 def test_an_outreach_failure_never_fails_the_application(tmp_path, monkeypatch):
     def boom(job_id):
         raise RuntimeError("apollo down")
-    monkeypatch.setattr(outreach_api, "prepare", boom)
+    monkeypatch.setattr(drafting, "prepare", boom)
     lenny, _ = application(tmp_path)
     pipeline.prepare_outreach(lenny)        # does not raise
 

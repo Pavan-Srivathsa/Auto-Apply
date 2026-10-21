@@ -382,8 +382,8 @@ def prepare_outreach(job: Job) -> None:
     if job.source != "lennys" or not settings.auto_outreach():
         return
     try:
-        from server import outreach
-        print(f"  {outreach.prepare(job.id)}")
+        from outreach import drafting
+        print(f"  {drafting.prepare(job.id)}")
     except Exception as exc:  # noqa: BLE001 - the extra must not fail the application
         print(f"  outreach failed: {str(exc)[:160]}")
 

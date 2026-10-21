@@ -54,11 +54,15 @@ class Draft(BaseModel):
     message_id: str = ""
     error: str = ""
     review: dict = Field(default_factory=dict)   # tailor.critic's score and trace; {} = not judged
+    followup: int = 0                            # 0 = the first email; n = follow-up n
+    reply_to: str = ""                           # the draft id this follow-up continues, in its thread
 
     @classmethod
     def create(cls, contact_id: str, subject: str, body: str, **values) -> "Draft":
         return cls(
-            id=stable_id(contact_id, now()),
+            # The follow-up number and subject are part of it: two drafts for one
+            # person in the same second (a first email and its follow-up) were one id.
+            id=stable_id(contact_id, now(), str(values.get("followup", 0)), subject),
             contact_id=contact_id,
             subject=subject,
             body=body,
@@ -66,10 +70,26 @@ class Draft(BaseModel):
         )
 
 
+class Reply(BaseModel):
+    """An answer to an email of ours, read off the inbox. `verdict` is
+    positive / neutral / negative; `posted` = announced on Slack."""
+    id: str                          # the reply's own Message-ID
+    contact_id: str
+    draft_id: str                    # the email of ours it answers
+    received_at: str
+    sender: str = ""
+    text: str = ""
+    verdict: str = ""
+    why: str = ""
+    win: int = 0                     # positive replies all-time, this one included
+    posted: bool = False
+
+
 class Outreach(BaseModel):
     job_id: str
     contacts: list[Contact] = Field(default_factory=list)
     drafts: list[Draft] = Field(default_factory=list)
+    replies: list[Reply] = Field(default_factory=list)
     active_draft: str = ""
     lookup_note: str = ""
     error: str = ""

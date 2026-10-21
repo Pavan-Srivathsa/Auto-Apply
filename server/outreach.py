@@ -7,24 +7,15 @@ not acknowledged.
 
 from __future__ import annotations
 
-import json
 import os
-import re
-from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import mailing
 import paths
-from outreach import apollo, jobright, store
+from outreach import apollo, drafting, jobright, store
 from outreach.models import Contact, Draft, now
-from server import queue
-from tailor import brief as briefs
-from tailor import outreach as writer
-from tailor import profile, tailor
-from tailor.answers import Context
 
 from .prompts import write_env
 
@@ -77,46 +68,24 @@ class GmailConfig(BaseModel):
     app_password: str
 
 
-def _job_and_dir(job_id: str):
-    job = queue.get(job_id)
-    if job is None:
-        raise HTTPException(404, f"no job {job_id}")
-    if not job.app_dir:
-        raise HTTPException(409, "the job has no tailored application folder yet")
-    app_dir = Path(job.app_dir)
-    if not app_dir.exists():
-        raise HTTPException(409, "the tailored application folder is missing")
-    return job, app_dir
-
-
-def _candidate_name(app_dir: Path) -> str:
-    form = paths.BASE / "form.json"
+def _http(call, *args):
+    """The drafting helpers (outreach.drafting) with their reasons as HTTP errors."""
     try:
-        data = json.loads(form.read_text()) if form.exists() else {}
-    except (OSError, ValueError):
-        data = {}
-    if isinstance(data, dict):
-        full = str(data.get("full_name") or "").strip()
-        if full:
-            return full
-        name = " ".join(str(data.get(key) or "").strip() for key in ("first_name", "last_name")).strip()
-        if name:
-            return name
-    letter = app_dir / "cover_letter.md"
-    if letter.exists():
-        match = re.search(r"(?im)^(?:Sincerely|Best),\s*\n([^\n]+)", letter.read_text())
-        if match:
-            return match.group(1).strip()
-    raise HTTPException(409, "your name is missing from Form details and the cover letter")
+        return call(*args)
+    except drafting.DraftError as exc:
+        raise HTTPException(exc.status, exc.detail) from None
 
 
-def _context(app_dir: Path) -> Context:
-    applicant = paths.BASE / "applicant.md"
-    return Context.from_app_dir(
-        app_dir,
-        profile=tailor.load_profile(stories=profile.read_used(app_dir)),
-        applicant=applicant.read_text(errors="replace") if applicant.exists() else "",
-    )
+def _job_and_dir(job_id: str):
+    return _http(drafting.job_and_dir, job_id)
+
+
+def _ensure_email(job_id: str, contact: Contact) -> Contact:
+    return _http(drafting.ensure_email, job_id, contact)
+
+
+def _write_draft(job, app_dir, contact: Contact, attach_resume: bool) -> Draft:
+    return _http(drafting.write_draft, job, app_dir, contact, attach_resume)
 
 
 def _status(job_id: str) -> dict:
@@ -233,77 +202,6 @@ def _existing_draft(job_id: str, contact_id: str) -> Draft | None:
     )
 
 
-def _ensure_email(job_id: str, contact: Contact) -> Contact:
-    if contact.email:
-        return contact
-    if not (contact.linkedin_url or contact.apollo_id):
-        raise HTTPException(409, f"{contact.name} has no email yet")
-    try:
-        contact = apollo.enrich(contact)
-    except apollo.ApolloError as exc:
-        raise HTTPException(502, str(exc)) from None
-    store.add_contacts(job_id, [contact], f"Apollo returned {contact.email_status or 'an email'}.")
-    return contact
-
-
-def _write_draft(job, app_dir, contact: Contact, attach_resume: bool) -> Draft:
-    if not contact.email:
-        raise HTTPException(409, "find or enter an email before drafting")
-    try:
-        return writer.draft(
-            _context(app_dir), contact, job.title, job.company,
-            _candidate_name(app_dir), attach_resume, app_dir.name,
-            brief=briefs.load(app_dir),
-        )
-    except writer.OutreachError as exc:
-        raise HTTPException(502, str(exc)) from None
-
-
-AUTO_ROLES = ("recruiter", "hiring_manager")     # one of each: credits are spent per address
-
-
-def prepare(job_id: str) -> str:
-    """Find the company's people and write one draft per role, for a job
-    that came in on its own (Lenny's Jobs). Never sends: a draft waits on
-    the review page until the person approves it. Returns one line for the
-    log; every failure is a line, not an exception, since the job's documents
-    are already done and outreach is the extra."""
-    if not apollo.configured():
-        return "outreach skipped: no Apollo key"
-    try:
-        job, app_dir = _job_and_dir(job_id)
-    except HTTPException as exc:
-        return f"outreach skipped: {exc.detail}"
-    if not job.company.strip():
-        return "outreach skipped: the job has no company name"
-    if store.get(job_id).drafts:
-        return "outreach skipped: drafts already exist"
-    try:
-        found = apollo.discover(job.company, 2)
-    except apollo.ApolloError as exc:
-        return f"outreach skipped: {exc}"
-    store.add_contacts(job_id, found, f"Apollo found {len(found)} contact(s) for you automatically.")
-    written, notes, first = 0, [], None
-    for role in AUTO_ROLES:
-        for contact in (c for c in found if c.role == role):
-            try:
-                draft = _write_draft(job, app_dir, _ensure_email(job_id, contact), True)
-            except HTTPException as exc:       # no email for this one: try the next of the role
-                notes.append(f"{contact.name}: {exc.detail}")
-                continue
-            store.put_draft(job_id, draft)
-            first = first or draft.id
-            written += 1
-            break
-    outreach = store.get(job_id)
-    outreach.lookup_note = f"Wrote {written} email draft(s) automatically; none is sent until you approve it." + (
-        " " + "; ".join(notes) if notes else "")
-    if first:
-        outreach.active_draft = first
-    store.save(outreach)
-    return f"outreach: {written} draft(s) for {job.company}, nothing sent"
-
-
 @router.post("/{job_id}/outreach/draft")
 def create_draft(job_id: str, request: DraftRequest) -> dict:
     job, app_dir = _job_and_dir(job_id)
@@ -415,6 +313,15 @@ def send(job_id: str, draft_id: str, request: SendRequest) -> dict:
         )
     except mailing.MailError as exc:
         raise HTTPException(409, str(exc)) from None
+    if draft.reply_to:
+        # A follow-up answers our own earlier email, so it lands in the same
+        # thread in their inbox and a reply to either is matched to the job.
+        parent = outreach.draft(draft.reply_to)
+        if parent and parent.message_id:
+            refs = " ".join(d.message_id for d in sorted(outreach.drafts, key=lambda d: d.followup)
+                            if d.contact_id == draft.contact_id and d.status == "sent" and d.message_id)
+            msg["In-Reply-To"] = parent.message_id
+            msg["References"] = refs or parent.message_id
     draft = draft.model_copy(update={
         "status": "sending", "message_id": str(msg["Message-ID"]),
         "verified_by_user": verified, "error": "", "updated_at": now(),

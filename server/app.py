@@ -108,6 +108,10 @@ def _start_watch() -> None:
     # roles at the level recorded and mailed. Nothing queued by itself.
     from scout import run as scout_run
     scout_run.start()
+    # Answers to outreach: read off the inbox, judged, positive ones on
+    # Slack, follow-ups drafted. Drafts only; sending stays a click.
+    from outreach import watch as outreach_watch
+    outreach_watch.start()
 
 
 @app.get("/health")

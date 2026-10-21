@@ -103,6 +103,14 @@ CATALOG: tuple[Prompt, ...] = (
            _const("tailor.critic", "PROMPT")),
     Prompt("critic.format", "Draft critic reply format", "Tailoring", FORMAT_NOTE,
            _const("tailor.critic", "FORMAT")),
+    Prompt("outreach.followup", "Outreach follow-up", "Tailoring",
+           "The follow-up drafted when an email has had no answer for two days. A draft only; "
+           "it is sent by your click like the first one.",
+           _const("tailor.outreach", "FOLLOWUP_PROMPT")),
+    Prompt("reply", "Reply verdict", "Tailoring",
+           "How an answer to your outreach is read as positive, neutral or negative, and the "
+           "one-line why the Slack alert shows. Jev decides the verdict when its key is set.",
+           _const("tailor.replies", "PROMPT")),
     Prompt("answers", "Form answers", "Tailoring",
            "How the open questions on a form are answered. Visa questions are "
            "refused in code whatever this says.",

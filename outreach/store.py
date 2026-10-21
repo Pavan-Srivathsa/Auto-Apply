@@ -61,6 +61,19 @@ def get(job_id: str) -> Outreach:
         return Outreach(job_id=job_id, error="saved outreach state could not be read")
 
 
+def all_jobs() -> list[Outreach]:
+    """Every job's outreach state."""
+    with _LOCK:
+        data = _read(state_path())
+    rows = []
+    for job_id, raw in data.items():
+        try:
+            rows.append(Outreach.model_validate(raw | {"job_id": job_id}))
+        except ValueError:
+            continue
+    return rows
+
+
 def save(outreach: Outreach) -> Outreach:
     outreach.updated_at = now()
     with _LOCK:
