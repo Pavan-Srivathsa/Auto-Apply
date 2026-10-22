@@ -174,3 +174,8 @@ Asked: "Website is stuck."
 Changed: `review/index.html` (the ATS block on the job card closed), `tests/test_invariants.py` (the page's script must parse, checked with `node --check`).
 Intent: The ATS lines added to the card opened a `${... ? `<div>` and never closed it; the script failed to parse, so every freshly loaded tab stopped at "Loading…" while the server answered in milliseconds. Also stopped: an injector left running since 2026-09-28 from an old session, injecting the September banner into every tab beside the current one.
 
+## 2026-10-22 — Leadership as an outreach option
+Asked: "let's also have top partners, CEO, CFO, CTOs ... as well as an option, not just hiring managers and recruiters."
+Changed: `outreach/apollo.py` (`leadership` titles: founders, CEO/CTO/CFO/COO, president, VP or head of engineering, partners; `discover(roles=)`), `outreach/models.py`, `outreach/store.py`, `server/outreach.py` (`DiscoverRequest.roles`), `review/index.html` (three tick boxes on Find people; Leadership in Add contact), `tailor/outreach_rules.md` (writing to leadership), `tests/test_outreach.py`.
+Intent: Leadership is ticked by the person, never searched by default, and the automatic Lenny's drafts still go to a recruiter and a hiring manager. An email to a founder or executive leads with the company's problem and one proof point, is shorter, and only asks to be pointed to the right person: never a referral or their own time.
+

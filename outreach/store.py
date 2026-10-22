@@ -88,7 +88,7 @@ def add_contacts(job_id: str, contacts: list[Contact], note: str = "") -> Outrea
     by_id = {row.id: row for row in outreach.contacts}
     for contact in contacts:
         by_id[contact.id] = contact
-    role_order = {"recruiter": 0, "hiring_manager": 1}
+    role_order = {"recruiter": 0, "hiring_manager": 1, "leadership": 2}
     outreach.contacts = sorted(
         by_id.values(), key=lambda row: (role_order.get(row.role, 9), row.name.lower()),
     )

@@ -1,7 +1,8 @@
 # Outreach email rules
 
-Write one short, specific email from this candidate to one recruiter or likely
-hiring manager about one role.
+Write one short, specific email from this candidate to one recruiter, likely
+hiring manager, or company leader (a founder, the CEO, CTO, CFO, a partner)
+about one role.
 
 ## Grounding
 
@@ -17,6 +18,17 @@ hiring manager about one role.
   would be open to a brief conversation. Never pressure them for a referral.
 - Say that the tailored resume is attached only when the request says it will
   be attached.
+
+## Writing to leadership
+
+When the role in outreach is leadership (a founder, CEO, CTO, CFO, COO, a
+partner):
+
+- Lead with the company's problem or product as the posting describes it, in
+  one sentence, and the one proof point that bears on it. Not the resume.
+- Shorter: 60 to 100 words. Their time is the scarcest in the company.
+- The ask is only to be pointed to the right person or team for this role.
+  Never ask an executive for a referral, an interview, or a call of their own.
 
 ## Shape and tone
 
