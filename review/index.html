@@ -2035,7 +2035,7 @@ const Scout = (() => {
   // requirements behind it on a click.
   function fitBlock(fit) {
     if (!fit || !fit.verdict) return "";
-    const label = {qualified: "Qualified", stretch: "Stretch", not_qualified: "Not qualified"}[fit.verdict] || fit.verdict;
+    const label = {qualified: "Qualified", stretch: "Stretch", not_qualified: "Not qualified", unknown: "Fit unknown"}[fit.verdict] || fit.verdict;
     const rows = (fit.items || []).filter((i) => i.level !== "meets").map((i) =>
       `<li><span class="lvl ${escape(i.level)}">${i.level === "missing" ? "Missing" : "Partly"}</span> ${escape(i.text)}${
         i.reason ? `<span class="why">${escape(i.reason)}</span>` : ""}</li>`).join("");
@@ -2052,8 +2052,8 @@ const Scout = (() => {
         <div class="t"><a href="${escape(r.url)}" target="_blank" rel="noopener">${escape(r.title)}</a></div>
         <div class="m">${r.company ? `${escape(r.company)} · ` : ""}${escape(r.location || "")}${r.posted ? ` · posted ${escape(r.posted)}` : ""}${queued.has(r.id) ? " · in autopilot" : ""}</div>
         ${fitBlock(r.fit)}
-        ${queued.has(r.id) ? "" : `<div class="actions"><button class="act primary" data-add="${escape(r.id)}">Add to autopilot</button>
-          ${r.fit ? "" : `<button class="act" data-fit="${escape(r.id)}">Check fit</button>`}</div>`}
+        ${r.fit ? "" : `<div class="fitline"><span class="hint">Checking fit…</span></div>`}
+        ${queued.has(r.id) ? "" : `<div class="actions"><button class="act primary" data-add="${escape(r.id)}">Add to autopilot</button></div>`}
       </div>`;
     return `<h3>At your level now · ${rows.length}</h3>
       <div class="card">${rows.map(card).join("") || `<p class="empty" style="padding:1rem">${w.last_checked ? "Nothing on the page passes the title and location filters. Loosen them above and Check now." : "Not read yet."}</p>`}</div>`;
@@ -2140,12 +2140,6 @@ const Scout = (() => {
     }
     for (const b of $("detail").querySelectorAll("[data-add]")) b.onclick = () =>
       call(`/scout/watch/${w.id}/add`, { method: "POST", body: JSON.stringify({ posting_id: b.dataset.add }) }, null, async () => { await refresh(); render(); });
-    for (const b of $("detail").querySelectorAll("[data-fit]")) b.onclick = () => {
-      b.disabled = true; b.textContent = "Checking fit… (10–20 s)";
-      call(`/scout/watch/${w.id}/fit`, { method: "POST", body: JSON.stringify({ posting_id: b.dataset.fit }) }, null,
-           async () => { await refresh(); render(); })
-        .then(() => { if (b.isConnected) { b.disabled = false; b.textContent = "Check fit"; } });
-    };
     for (const b of $("detail").querySelectorAll("[data-queue]")) b.onclick = () =>
       call(`/scout/hits/${b.dataset.queue}/queue`, { method: "POST" }, null, async () => { await refresh(); render(); });
     for (const b of $("detail").querySelectorAll("[data-dismiss]")) b.onclick = () =>

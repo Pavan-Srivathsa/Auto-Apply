@@ -179,3 +179,8 @@ Asked: "let's also have top partners, CEO, CFO, CTOs ... as well as an option, n
 Changed: `outreach/apollo.py` (`leadership` titles: founders, CEO/CTO/CFO/COO, president, VP or head of engineering, partners; `discover(roles=)`), `outreach/models.py`, `outreach/store.py`, `server/outreach.py` (`DiscoverRequest.roles`), `review/index.html` (three tick boxes on Find people; Leadership in Add contact), `tailor/outreach_rules.md` (writing to leadership), `tests/test_outreach.py`.
 Intent: Leadership is ticked by the person, never searched by default, and the automatic Lenny's drafts still go to a recruiter and a hiring manager. An email to a founder or executive leads with the company's problem and one proof point, is shorter, and only asks to be pointed to the right person: never a referral or their own time.
 
+## 2026-10-22 — Every listed role gets its fit by itself
+Asked: "Why is 'check fit' an option? Let it automatically check the fit. I am not clicking another thing."
+Changed: `scout/fitter.py` (new: a server thread that works out the fit of every listed role without one, two at a time, newest first, cached by link in `data/fit_cache.json`; an unreadable posting is `unknown`, not retried), `scout/store.py` (`set_listed_fit`, `fits_by_id`, under the lock), `scout/run.py` (a rewritten list keeps the fits in the store, not the ones the check started with), `server/app.py`, `review/index.html` (the button gone; "Checking fit…" until the verdict lands), `tests/test_fitter.py`.
+Intent: The verdict is on every Scout row before the person looks. The first pass covers the ~240 roles already listed; after that each check adds a few.
+

@@ -84,6 +84,29 @@ def update_watch(watch_id: str, **fields) -> Optional[Watch]:
         return None
 
 
+def set_listed_fit(watch_id: str, posting_id: str, fit: dict) -> bool:
+    """One listed role's fit, written under the lock against the list as it
+    is now: a check that rewrote the list meanwhile keeps the other fits."""
+    with _lock:
+        data = _read()
+        for raw in data["watches"]:
+            if Watch(**raw).id != watch_id:
+                continue
+            for row in raw.get("listed", []):
+                if row.get("id") == posting_id:
+                    row["fit"] = fit
+                    _write(data)
+                    return True
+        return False
+
+
+def fits_by_id(watch_id: str) -> dict[str, dict]:
+    """The fits on a watch's list now, by posting id."""
+    with _lock:
+        watch = get_watch(watch_id)
+        return {r["id"]: r["fit"] for r in (watch.listed if watch else []) if r.get("fit")}
+
+
 def remove_watch(watch_id: str) -> bool:
     with _lock:
         data = _read()

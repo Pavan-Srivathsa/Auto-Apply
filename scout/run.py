@@ -92,10 +92,9 @@ def listed_row(p: Posting) -> dict:
             "company": p.company}
 
 
-def _keep_fit(row: dict, watch: Watch) -> dict:
-    """A fit the person already asked for survives the list being rewritten."""
-    before = next((r for r in watch.listed if r["id"] == row["id"] and r.get("fit")), None)
-    return row | {"fit": before["fit"]} if before else row
+def _keep_fit(row: dict, fits: dict[str, dict]) -> dict:
+    """A fit already worked out survives the list being rewritten."""
+    return row | {"fit": fits[row["id"]]} if row["id"] in fits else row
 
 
 def add_listed(watch_id: str, posting_id: str) -> dict:
@@ -289,7 +288,8 @@ def _check(watch: Watch, screen: bool) -> dict:
     listed = {p.id for p in rows}
     store.update_watch(watch.id, last_checked=now, last_ok=now, last_total=len(rows),
                        last_matching=len(matching), error=None, broken_mailed=False,
-                       seen_ids=sorted(seen & listed), listed=[_keep_fit(listed_row(p), watch) for p in matching[:LISTED_KEEP]])
+                       seen_ids=sorted(seen & listed),
+                       listed=[_keep_fit(listed_row(p), store.fits_by_id(watch.id)) for p in matching[:LISTED_KEEP]])
     return {"checked": True, "ok": True, "total": len(rows), "matching": len(matching),
             "new": len(added), "queued": len(queued), "first_run": first_run, "hits": [h.id for h in added]}
 
