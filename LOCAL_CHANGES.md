@@ -84,3 +84,8 @@ Asked: "keep the jobs in date order. Only project around. Now keep it separate f
 Changed: `tailor/tailor.py` (`roles`, `_check_role_order` in `_validate`), `tests/test_tailor.py`, and the person's own `tailor` prompt edit (two passages: entry order applies to PROJECTS only; jobs keep the master's order), saved through `tailor.prompts.save` so it merges with future stock updates.
 Intent: A resume that moves a job above a newer one is sent back with the order named, like every other tailoring check; bullets inside a job and PROJECTS entries may still move. Committed on `mine`, apart from the `loop-engineering` branch.
 
+## 2026-10-22 — Greenhouse postings read from the board API
+Asked: testing the loop on the Stripe job ("Use stripe").
+Changed: `tailor/fetch.py` (`greenhouse_job`, `_greenhouse`; the page scrape is `_fetch_page`), `tests/test_fetch.py`.
+Intent: A Greenhouse link (the embedded form `/embed/job_app?for=<board>&token=<id>`, or `/<board>/jobs/<id>`) is read from `boards-api.greenhouse.io`, which carries the full description; the page is scraped only when the API has nothing. Stripe's posting had been saved as its application form, so its documents were tailored without the job description.
+
