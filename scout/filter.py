@@ -32,31 +32,88 @@ def matching(watch: Watch, postings: list[Posting]) -> list[Posting]:
 
 # ------------------------------------------------------------------ place
 # "US only" in code, on the listing's location line, before the screen.
-# Only a location that names another country or one of its cities is
-# out; an empty line, "Remote", a US state or city, or anything the
-# lists do not know stays in, and the screen reads the posting.
-NON_US = [
+# A place is kept only when it reads as the US: the country, a state (by
+# name, or its code after a comma: "Austin, TX"), or a major US city. An
+# empty line and a bare "Remote" / "Hybrid" stay too, and the screen reads
+# the posting. Anything else is out, including a city the lists do not
+# know: "only the United States" (2026-10-22) means an unknown place is not
+# a yes. It used to be the other way round, and "Herzliya (Remote)" and
+# "Remoto" came through.
+# Named places abroad. They no longer decide alone (an unknown place is out
+# anyway); they overrule a two-letter code, which is ambiguous: "Hyderabad,
+# TS, IN" is India, not Indiana, and "Toronto, CA" is Canada.
+FOREIGN = [
     "japan", "tokyo", "osaka", "aichi", "okazaki", "netherlands", "best,", "amsterdam", "eindhoven",
     "united kingdom", "uk", "london", "england", "scotland", "ireland", "dublin", "germany", "berlin",
     "munich", "france", "paris", "spain", "madrid", "barcelona", "italy", "milan", "rome", "poland",
-    "warsaw", "sweden", "stockholm", "norway", "denmark", "copenhagen", "finland", "helsinki",
-    "switzerland", "zurich", "austria", "vienna", "belgium", "brussels", "portugal", "lisbon",
-    "czech", "prague", "hungary", "romania", "israel", "tel aviv", "india", "bangalore", "bengaluru",
-    "hyderabad", "chennai", "pune", "mumbai", "delhi", "gurgaon", "gurugram", "noida", "china",
-    "beijing", "shanghai", "shenzhen", "hong kong", "taiwan", "taipei", "korea", "seoul", "singapore",
-    "australia", "sydney", "melbourne", "new zealand", "auckland", "canada", "toronto", "vancouver",
-    "montreal", "ottawa", "waterloo", "mexico", "brazil", "sao paulo", "são paulo", "argentina",
-    "colombia", "chile", "philippines", "manila", "vietnam", "indonesia", "jakarta", "malaysia",
-    "thailand", "bangkok", "uae", "dubai", "abu dhabi", "saudi", "egypt", "nigeria", "kenya",
-    "south africa", "turkey", "istanbul", "ukraine", "kyiv", "russia", "moscow", "emea", "apac", "latam",
+    "warsaw", "krakow", "kraków", "sweden", "stockholm", "norway", "denmark", "copenhagen", "finland",
+    "helsinki", "switzerland", "zurich", "austria", "vienna", "belgium", "brussels", "portugal",
+    "lisbon", "czech", "prague", "brno", "hungary", "romania", "israel", "tel aviv", "herzliya",
+    "india", "bangalore", "bengaluru", "hyderabad", "chennai", "pune", "mumbai", "delhi", "gurgaon",
+    "gurugram", "noida", "kolkata", "china", "beijing", "shanghai", "shenzhen", "hong kong", "taiwan",
+    "taipei", "korea", "seoul", "singapore", "australia", "sydney", "melbourne", "new zealand",
+    "auckland", "canada", "toronto", "vancouver", "montreal", "ottawa", "waterloo", "mexico",
+    "jalisco", "brazil", "sao paulo", "são paulo", "argentina", "colombia", "chile", "philippines",
+    "manila", "vietnam", "indonesia", "jakarta", "malaysia", "thailand", "bangkok", "uae", "dubai",
+    "abu dhabi", "saudi", "egypt", "nigeria", "lagos", "kenya", "south africa", "turkey", "istanbul",
+    "ukraine", "kyiv", "russia", "moscow", "emea", "apac", "latam",
 ]
 US_WORDS = ["united states", "usa", "u.s.", "us-", "remote - us", "us remote"]
+US_STATES = [
+    "alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware",
+    "florida", "georgia", "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky",
+    "louisiana", "maine", "maryland", "massachusetts", "michigan", "minnesota", "mississippi",
+    "missouri", "montana", "nebraska", "nevada", "new hampshire", "new jersey", "new mexico",
+    "new york", "north carolina", "north dakota", "ohio", "oklahoma", "oregon", "pennsylvania",
+    "rhode island", "south carolina", "south dakota", "tennessee", "texas", "utah", "vermont",
+    "virginia", "washington", "west virginia", "wisconsin", "wyoming", "district of columbia",
+]
+US_CODES = {
+    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id", "il", "in", "ia", "ks",
+    "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny",
+    "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv",
+    "wi", "wy", "dc",
+}
+US_CITIES = [
+    "san francisco", "sf", "bay area", "silicon valley", "nyc", "seattle", "boston", "austin",
+    "los angeles", "chicago", "denver", "atlanta", "san jose", "mountain view", "palo alto",
+    "sunnyvale", "menlo park", "cupertino", "santa clara", "redwood city", "san mateo", "redmond",
+    "bellevue", "kirkland", "miami", "dallas", "houston", "san diego", "irvine", "pittsburgh",
+    "philadelphia", "phoenix", "salt lake city", "raleigh", "durham", "minneapolis", "detroit",
+    "nashville", "brooklyn", "jersey city", "columbus", "charlotte", "st. louis", "kansas city",
+    "baltimore", "ann arbor", "boulder", "plano", "reston", "mclean", "arlington", "princeton",
+    "madison", "oakland", "berkeley", "santa monica", "culver city", "playa vista", "burbank",
+]
+_CODE_AFTER_COMMA = re.compile(r",\s*([a-z]{2})(?![a-z])")
+_BARE = re.compile(r"[^a-z]+")
+_WORK_MODE = {"remote", "hybrid", "onsite", "on", "site", "in", "office", "anywhere", "flexible"}
+
+
+def _foreign(loc: str) -> bool:
+    return any(_hit(n.rstrip(","), loc) if not n.endswith(",") else n in loc for n in FOREIGN)
+
+
+def _reads_us(loc: str) -> bool:
+    if any(w in loc for w in US_WORDS) or _hit("us", loc) or any(_hit(s, loc) for s in US_STATES) \
+            or any(_hit(c, loc) for c in US_CITIES):
+        return True
+    # A state code only when nothing in the place names another country.
+    return not _foreign(loc) and any(m.group(1) in US_CODES for m in _CODE_AFTER_COMMA.finditer(loc))
+
+
+_COUNTED = re.compile(r"^\s*\d+\s+locations?\s*$")
+
+
+def _bare(loc: str) -> bool:
+    """Empty, only a work mode ("Remote", "Hybrid", "On-site"), or a count
+    ("2 Locations") that hides the places; the screen reads the posting."""
+    return bool(_COUNTED.match(loc)) or all(word in _WORK_MODE for word in _BARE.split(loc) if word)
 
 
 def _part_outside(loc: str) -> bool:
-    if not loc.strip() or any(w in loc for w in US_WORDS):
+    if _bare(loc) or _reads_us(loc):
         return False
-    return any(_hit(n.rstrip(","), loc) if not n.endswith(",") else n in loc for n in NON_US)
+    return True
 
 
 def outside_us(location: str) -> bool:

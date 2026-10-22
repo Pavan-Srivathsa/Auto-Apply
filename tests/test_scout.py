@@ -456,6 +456,14 @@ def test_us_only_drops_roles_abroad_before_anything_else():
     assert not level.outside_us("Suwanee, Georgia") and not level.outside_us("") and not level.outside_us("Remote")
     assert not level.outside_us("Austin, TX; Toronto, ON, Canada")     # one of them is here
     assert not level.outside_us("Remote - US") and not level.outside_us("Mountain View, CA, USA")
+    # Only the United States: an unknown place is out, not in (2026-10-22).
+    for abroad in ("HERZLIYA (REMOTE)", "REMOTO", "Kraków", "Lagos", "HYDERABAD, TELANGANA, IND", "Toronto, ON",
+                   "HYDERABAD, TS, IN", "BANGALORE, IN", "TORONTO, CA", "BRNO"):
+        assert level.outside_us(abroad), abroad
+    for home in ("SAN FRANCISCO", "NEW YORK", "REMOTE US", "OFFICE - USA - CA - HEADQUARTERS", "Hybrid",
+                 "On-site", "Boise, ID", "SEATTLE, WASHINGTON, USA", "Remote; Herzliya", "2 LOCATIONS",
+                 "POUGHKEEPSIE, US", "DETROIT (REMOTE)", "KALAMAZOO, MI"):
+        assert not level.outside_us(home), home
     rows = [posting(1, "Software Engineer", location="Tokyo, Japan"), posting(2, "Software Engineer", location="Austin, TX")]
     us = Watch(url="https://x", company="A", provider="lever", args={})
     assert [p.id for p in level.matching(us, rows)] == ["2"]
