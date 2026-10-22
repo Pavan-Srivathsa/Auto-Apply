@@ -12,8 +12,10 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from html import unescape
 from html.parser import HTMLParser
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -120,15 +122,59 @@ def _strip_html(value: str) -> str:
     return extractor.text()
 
 
+GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{job}"
+
+
+def greenhouse_job(url: str) -> Optional[tuple[str, str]]:
+    """(board, job id) for a Greenhouse posting link, else None. The embedded
+    form (`/embed/job_app?for=stripe&token=8224915`) shows only the
+    application questions, and every Greenhouse job is also in the public
+    board API with its full description (2026-10-22, Stripe)."""
+    parts = urlparse(url)
+    if not parts.netloc.endswith("greenhouse.io"):
+        return None
+    query = parse_qs(parts.query)
+    board = (query.get("for") or [""])[0]
+    job = (query.get("token") or query.get("gh_jid") or [""])[0]
+    path = [p for p in parts.path.split("/") if p]
+    if not board and len(path) >= 3 and path[1] == "jobs":
+        board, job = path[0], job or path[2]
+    return (board, job) if board and job.isdigit() else None
+
+
+def _greenhouse(url: str, client: httpx.Client) -> Optional[Posting]:
+    found = greenhouse_job(url)
+    if not found:
+        return None
+    try:
+        response = client.get(GREENHOUSE_API.format(board=found[0], job=found[1]))
+        data = response.json() if response.status_code == 200 else {}
+    except (httpx.HTTPError, ValueError):
+        return None
+    text = _strip_html(unescape(str(data.get("content") or "")))
+    if len(text) < MIN_USEFUL_CHARS:
+        return None
+    location = data.get("location") if isinstance(data.get("location"), dict) else {}
+    return Posting(url=url, text=text, title=str(data.get("title") or ""),
+                   company=str(data.get("company_name") or ""), location=str(location.get("name") or ""))
+
+
 def fetch(url: str) -> Posting:
     with httpx.Client(
         follow_redirects=True,
         timeout=TIMEOUT,
         headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
     ) as client:
-        response = client.get(url)
-        response.raise_for_status()
-        html = response.text
+        posting = _greenhouse(url, client)
+        if posting is not None:
+            return posting
+        return _fetch_page(url, client)
+
+
+def _fetch_page(url: str, client: httpx.Client) -> Posting:
+    response = client.get(url)
+    response.raise_for_status()
+    html = response.text
 
     extractor = _TextExtractor()
     extractor.feed(html)

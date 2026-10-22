@@ -81,3 +81,29 @@ def _fetch_html(html: str, url: str = "https://example.com/jobs/1"):
         return fetch.fetch(url)
     finally:
         httpx.Client = real_client
+
+
+def test_a_greenhouse_link_reads_the_description_from_the_board_api():
+    """The embedded form shows only the application questions; Stripe's
+    posting came through as its form and every document was tailored blind."""
+    from tailor import fetch as fetcher
+    assert fetcher.greenhouse_job("https://job-boards.greenhouse.io/embed/job_app?for=stripe&token=8224915") == ("stripe", "8224915")
+    assert fetcher.greenhouse_job("https://boards.greenhouse.io/acme/jobs/42?gh_jid=42") == ("acme", "42")
+    assert fetcher.greenhouse_job("https://jobs.ashbyhq.com/acme/1") is None
+    body = "&lt;p&gt;Growth Platform builds the machine learning systems " + "that help businesses grow. " * 30 + "&lt;/p&gt;"
+
+    class Client:
+        def __init__(self):
+            self.urls = []
+
+        def get(self, url):
+            self.urls.append(url)
+            data = {"title": "Machine Learning Engineer, Growth Platform", "content": body,
+                    "location": {"name": "San Francisco"}}
+            return type("R", (), {"status_code": 200, "json": lambda self: data})()
+
+    client = Client()
+    posting = fetcher._greenhouse("https://job-boards.greenhouse.io/embed/job_app?for=stripe&token=8224915", client)
+    assert client.urls == ["https://boards-api.greenhouse.io/v1/boards/stripe/jobs/8224915"]
+    assert posting.title == "Machine Learning Engineer, Growth Platform" and posting.location == "San Francisco"
+    assert posting.text.startswith("Growth Platform builds") and "<p>" not in posting.text
