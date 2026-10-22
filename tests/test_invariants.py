@@ -106,3 +106,21 @@ def test_automation_cannot_reach_outbound_mail():
     route = (ROOT / "server" / "outreach.py").read_text()
     assert "confirmed" in route and "mailing.send_message(msg)" in route
     assert "this message is already" in route, "a sent email must not be sent twice"
+
+
+# 7. The page's script parses. One unclosed template literal (2026-10-22)
+#    left every freshly loaded tab on "Loading…" while the server was fine.
+
+def test_the_review_pages_script_parses(tmp_path):
+    import re
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+        pytest.skip("node is not installed")
+    html = (ROOT / "review" / "index.html").read_text()
+    script = tmp_path / "page.js"
+    script.write_text("\n;\n".join(re.findall(r"<script(?![^>]*src)[^>]*>(.*?)</script>", html, re.S)))
+    result = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr[-600:]

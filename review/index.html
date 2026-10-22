@@ -776,7 +776,7 @@ function fitHtml(fit) {
       ${fit.ats && (fit.ats.missing_fixable.length || fit.ats.missing_no_evidence.length) ? `<div class="sum hint">
         ${fit.ats.missing_fixable.length ? `<span>Missing, but on file: ${fit.ats.missing_fixable.map(escape).join(", ")}</span>` : ""}
         ${fit.ats.missing_no_evidence.length ? `<span>Missing, nothing on file (left out): ${fit.ats.missing_no_evidence.map(escape).join(", ")}</span>` : ""}
-      </div>
+      </div>` : ""}
       <table>${rows}</table>
     </div>`;
 }
