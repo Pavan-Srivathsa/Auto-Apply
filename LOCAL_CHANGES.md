@@ -204,3 +204,12 @@ Asked: "what 3/10, for resume and cover letter? but match is 7/7?" (Glean, ML En
 Changed: `pipeline.py` (the letter's invention check gets the posting as a source), `server/review.py` (`_ats`: a keyword is "on file" only when that term is in the master resume or the stories), `tailor/critic.py` (the resume's keyword fixes only for such terms), `tests/test_bank.py`.
 Intent: 3/10 was the invention cap, not quality: the letter's points were 1.99, 1.97, 2.0 and 1.5 (about 9/10) but its true lines about Glean had no source to rest on. The ATS list put Go and Java "on file" because Python answered the languages requirement, and the resume's revision was told to use them.
 
+
+## 2026-10-22 — Judge invention line by line, and let the code prove a line
+
+Intent: Glean's resume read 3/10 because one whole-document question had Jev
+call it 0.70 "invented" while every bullet alone scored 0.28 or less. Jev now
+judges each sentence or bullet, and a line whose figures and names are all on
+the master or the picked stories is proven by the code (`bank.ungrounded`), so
+Jev's doubt alone cannot cap it. A line with nothing checkable stays Jev's call.
+The resume critic reads the visible bullets, not the LaTeX. Glean re-scored 7/10.

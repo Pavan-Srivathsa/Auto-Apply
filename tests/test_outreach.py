@@ -311,7 +311,7 @@ def test_a_flagged_email_is_told_which_sentence_to_cut(monkeypatch):
            "I cut query failures 70% with SQL validation.")
 
     def ask(state, questions, **kw):
-        if "sentences" in state:
+        if "lines" in state:
             return {"s0": {"noul": 0.8}, "s1": {"noul": 0.1}}
         out = {name: {"score": 1.9} for name in questions if name != "invented"}
         out["invented"] = {"noul": 0.9}
@@ -319,7 +319,7 @@ def test_a_flagged_email_is_told_which_sentence_to_cut(monkeypatch):
 
     monkeypatch.setattr(jev, "ask", ask)
     c = critic.judge("email", doc, None, subject="Priya, agents", sources={"resume": "cut query failures 70%"})
-    assert c.fixes[0].startswith("Cut or rewrite this sentence") and "a bar I have worked against" in c.fixes[0]
+    assert c.fixes[0].startswith("Cut or rewrite this line") and "a bar I have worked against" in c.fixes[0]
 
 
 def test_colleagues_get_a_different_opening_and_a_different_proof_point():

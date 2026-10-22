@@ -23,14 +23,11 @@ def no_jev(monkeypatch):
 
 def jev_answers(levels, invented=0.1):
     def ask(state, questions, model=None, client=None):
-        if "sentences" in state:                     # the per-sentence check on a flagged draft
-            return {name: {"noul": 0.9 if i == 0 else 0.1} for i, name in enumerate(questions)}
-        assert set(questions) == {p.name for p in critic.EMAIL} | {"invented"}
+        if "lines" in state:                         # the per-line invention check
+            return {name: {"noul": invented if i == 0 else 0.05} for i, name in enumerate(questions)}
+        assert set(questions) == {p.name for p in critic.EMAIL}
         assert state["brief"][1]["evidence"] is None             # a gap goes to Jev as null
-        assert "sources" not in state or "resumeItem" not in str(state["sources"])   # sources as plain text
-        out = {name: {"type": "score", "score": level} for name, level in levels.items()}
-        out["invented"] = {"type": "noul", "noul": invented}
-        return out
+        return {name: {"type": "score", "score": level} for name, level in levels.items()}
     return ask
 
 
@@ -49,7 +46,15 @@ def test_an_inventing_draft_is_capped_and_told_to_stop(monkeypatch):
     c = critic.judge("email", "Airflow, 2M rows a day, and I ran Spark on 10TB.", BRIEF,
                      sources={"resume": r"\resumeItem{Built an Airflow pipeline moving 2M rows a day}"})
     assert c.score == critic.INVENTED_CAP
-    assert c.fixes[0].startswith("Cut or rewrite this sentence") and "Spark on 10TB" in c.fixes[0]
+    assert c.fixes[0].startswith("Cut or rewrite this line") and "Spark on 10TB" in c.fixes[0]
+
+
+def test_a_line_whose_figures_and_names_are_on_file_is_never_capped(monkeypatch):
+    monkeypatch.setenv(jev.API_KEY_ENV, "key")
+    monkeypatch.setattr(jev, "ask", jev_answers({p.name: 2 for p in critic.EMAIL}, invented=0.9))
+    c = critic.judge("email", "I built an Airflow pipeline moving 2M rows a day.", BRIEF,
+                     sources={"resume": r"\resumeItem{Built an Airflow pipeline moving 2M rows a day}"})
+    assert c.score > critic.INVENTED_CAP and c.invented <= critic.INVENTED
 
 
 def test_an_unanswered_requirement_with_evidence_is_the_first_fix(monkeypatch):

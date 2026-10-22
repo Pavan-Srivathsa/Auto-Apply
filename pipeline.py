@@ -516,7 +516,9 @@ def review_resume(app_dir: Path, posting, master: str, result, brief, profile_te
         return again.tex
 
     review = critic.refine("resume", result.tex, brief, revise, rounds=RESUME_ROUNDS,
-                           body_of=lambda tex: " ".join(briefs._plain(tex).split()),
+                           # One line per bullet, so the invention check can name the one it doubts.
+                           body_of=lambda tex: "\n".join(" ".join(tailor.layout.visible(b).split())
+                                                         for b in tailor.bullets(tex)),
                            sources={"resume": master, "stories": profile_text})
     store.write(app_dir, "resume_review.json", json.dumps(review.to_dict(), indent=2) + "\n")
     if review.text == result.tex:

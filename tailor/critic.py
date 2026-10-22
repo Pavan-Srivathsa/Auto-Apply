@@ -201,52 +201,56 @@ def _state(document: str, brief: Optional[briefs.Brief], subject: str = "",
 
 def judge_jev(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "",
               sources: Optional[dict] = None) -> Critique:
+    """The rubric points in one request; the invention check per line in a
+    second. Asked about a whole resume at once, Jev read Glean's as 0.70
+    likely to invent while no single bullet scored above 0.28 (2026-10-22):
+    one question about a long document is a vague one. Per line, the cap
+    falls only on a line actually judged unsupported, and the fix names it."""
     rubric = RUBRICS[kind]
     questions = {p.name: jev.score(p.question, list(p.levels)) for p in rubric}
-    questions["invented"] = jev.noul(
-        {"question": "Does `draft` claim a skill, employer, achievement, number, experience or relationship of "
-                     "the candidate that neither `sources.resume` nor `sources.stories` supports?",
-         "focus": "Rewording, reordering and the posting's vocabulary for the same work are fine, and so are "
-                  "opinions and interest in the role. Statements about the company may rest on "
-                  "`sources.posting`. Only a fact about the candidate with no support counts."},
-        {"true": "At least one claim has no support in either source",
-         "false": "Every claim is supported by a source"})
     answers = jev.ask(_state(document, brief, subject, sources), questions)
     points = {p.name: float(answers[p.name]["score"]) for p in rubric}
-    invented = float(answers["invented"]["noul"])
+    flagged = _line_scores(document, sources) if sources else []
+    invented = max((p for p, _ in flagged), default=0.0)
     score, raw, fixes = _scored(rubric, points, invented)
-    if invented > INVENTED and sources:
-        # Name the sentence: "remove every unsupported claim" told the writer
-        # nothing it could act on, and every revision repeated the claim
-        # (Alchemi, 2026-10-22: "which is a bar I have worked against").
-        flagged = _flagged_sentences(document, sources)
-        if flagged:
-            fixes = [f'Cut or rewrite this sentence; it claims something the candidate\'s record does not show: "{f}"'
-                     for f in flagged] + fixes[1:]
+    if invented > INVENTED:
+        named = [f'Cut or rewrite this line; it claims something the candidate\'s record does not show: "{line}"'
+                 for p, line in flagged if p > INVENTED][:2]
+        fixes = named + fixes[1:]
     return Critique(score=score, points=points, fixes=fixes, judge="jev", invented=invented, raw=raw)
 
 
-SENTENCE = re.compile(r"(?<=[.!?])\s+")
+SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
-def _flagged_sentences(document: str, sources: dict, limit: int = 2) -> list[str]:
-    """The sentences of `document` Jev reads as claims the candidate's record
-    does not support, most doubtful first. One request, every sentence in
-    parallel."""
-    sentences = [s.strip() for s in SENTENCE.split(" ".join(document.split())) if len(s.strip()) > 25]
-    if not sentences:
+def _line_scores(document: str, sources: dict) -> list[tuple[float, str]]:
+    """(probability it is unsupported, line) for every sentence or bullet of
+    `document`, most doubtful first. One request, every line in parallel. A
+    line about the company may rest on `sources.posting`."""
+    lines = [l.strip() for l in SENTENCE.split(document.strip()) if len(l.strip()) > 25]
+    if not lines:
         return []
-    state = {"sentences": sentences,
+    state = {"lines": lines,
              "sources": {k: " ".join(briefs._plain(v).split()) for k, v in sources.items() if v and v.strip()}}
     questions = {f"s{i}": jev.noul(
-        f"Does `sentences[{i}]` claim something about the candidate that `sources.resume` and `sources.stories` "
-        "do not support?") for i in range(len(sentences))}
-    try:
-        answers = jev.ask(state, questions)
-    except jev.JevError:
-        return []
-    scored = sorted(((float(answers[f"s{i}"]["noul"]), s) for i, s in enumerate(sentences)), reverse=True)
-    return [s for p, s in scored if p > INVENTED][:limit]
+        {"question": f"Does `lines[{i}]` claim something about the candidate that `sources.resume` and "
+                     "`sources.stories` do not support?",
+         "focus": "Rewording and the posting's vocabulary for the same work are fine; statements about the "
+                  "company may rest on `sources.posting`."}) for i in range(len(lines))}
+    answers = jev.ask(state, questions)
+    # Jev called master bullets "unsupported" at 0.78 (Glean). A line that carries
+    # figures or names, every one of them on file, is proven by the code, so Jev's
+    # doubt alone never pushes it over INVENTED. A line with nothing to check
+    # ("a bar I have worked against") stays Jev's call.
+    on_file = " ".join(sources.values())
+    return sorted(((min(float(answers[f"s{i}"]["noul"]), INVENTED) if _grounded(line, on_file)
+                    else float(answers[f"s{i}"]["noul"]), line) for i, line in enumerate(lines)), reverse=True)
+
+
+def _grounded(line: str, on_file: str) -> bool:
+    from .bank import ungrounded
+    checkable = ungrounded(line, "")
+    return bool(checkable) and not ungrounded(line, on_file)
 
 
 def judge_text(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "",
