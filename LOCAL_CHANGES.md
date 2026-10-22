@@ -129,3 +129,8 @@ Asked: for AI engineering roles drop the USC research job and make Koantek and B
 Changed: data only, nothing in the repository: `base/resumes/ai-engineering/` (from the Inference Resume: USC removed; BlackBuckInsights 5 bullets with the text-to-SQL pipeline and the FastAPI backend; Koantek 6 bullets leading with RAG, QLoRA fine-tuning, the Pearson speed-up and the Databricks workshop; skills rebalanced to AI and LLM engineering), and `data/resume_bases.json` (its target roles AI Engineer, Applied AI Engineer, LLM Engineer, GenAI Engineer, AI Solutions Engineer, AI Software Engineer; "AI Engineer" taken off the ML Resume). The registry before the change is backed up in the session scratchpad.
 Intent: Every new bullet is a fact from the interview stories; one invented method ("by restructuring the computation on Databricks") was cut before it was saved. One page. Routing checked on real jobs: EchoStar, Apple and Centific AI Engineer roles pick it; Stripe ML and a fraud data-science role keep the ML Resume. Rules and checks are unchanged: each job is tailored against the master it was routed to.
 
+## 2026-10-22 — AI Engineering master reverted
+Asked: "dont edit the resume. ill work on that and send it to you."
+Changed: data only: `data/resume_bases.json` restored from its backup, `base/resumes/ai-engineering/` removed (kept in the session scratchpad for reference). Routing is back to the three masters as they were, "AI Engineer" on the ML Resume.
+Intent: The person writes their own master resumes; the new one is registered as they send it.
+
