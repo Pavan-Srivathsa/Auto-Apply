@@ -300,7 +300,13 @@ def follow_boards(rows: list[Posting], limit: int = FOLLOW_LIMIT, skip: list[str
     person's "Add to autopilot" (`hold`). A company on the Lenny's watch's
     `skip` list is never followed. Returns the names added."""
     from scout import DetectError, detect
-    have = {(w.provider, json.dumps(w.args, sort_keys=True)) for w in store.watches()}
+    def key(provider: str, args: dict) -> tuple[str, str]:
+        # The board's own arguments; `via`, `hold` and `skip` are the watch's flags,
+        # and comparing them made every followed board look new on every check.
+        return provider, json.dumps({k: v for k, v in args.items() if k not in ("via", "hold", "skip")},
+                                    sort_keys=True)
+
+    have = {key(w.provider, w.args) for w in store.watches()}
     added: list[str] = []
     for row in rows:
         if len(added) >= limit:
@@ -309,11 +315,11 @@ def follow_boards(rows: list[Posting], limit: int = FOLLOW_LIMIT, skip: list[str
             provider, args, guess = detect(row.url)
         except DetectError:
             continue
-        if provider not in BOARD_URL or (provider, json.dumps(args, sort_keys=True)) in have:
+        if provider not in BOARD_URL or key(provider, args) in have:
             continue
         if skipped(row.company or guess, args, list(skip)):
             continue
-        have.add((provider, json.dumps(args, sort_keys=True)))
+        have.add(key(provider, args))
         watch = Watch(url=BOARD_URL[provider].format(**args), company=row.company or guess,
                       provider=provider, args=args | {"via": "lennys", "hold": True})
         if not verify(watch).get("ok"):

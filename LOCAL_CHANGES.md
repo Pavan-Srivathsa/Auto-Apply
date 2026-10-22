@@ -154,3 +154,8 @@ Asked: "Don't remove the ones like SpaceX ... we spoke about ... ones that requi
 Changed: `scout/filter.py` (`CLEARANCE_TITLE` drops a role whose title asks for a clearance; `_CLEARANCE` also reads "ability to obtain (and maintain) a ... clearance", TS/SCI and polygraph), `scout/run.py` (the Lenny's skip list applies to Lenny's own rows too), tests; data: the skip list is Anduril, Varda, Stoke Space, and SpaceX and SpaceX SI are followed again (held).
 Intent: The line is the clearance, not the company: SpaceX has many roles without one. A skipped company is never followed, listed, screened or queued.
 
+## 2026-10-22 — a16z and YC job boards in Scout
+Asked: "Add a16z job board and Y Combinator job board as well." (Wellfound left out; see below.)
+Changed: `scout/a16z.py`, `scout/yc.py` (new), `scout/providers.py`, `scout/__init__.py` (`detect`), `scout/run.py` (followed boards compared by their own arguments), `tests/test_boards.py`.
+Intent: jobs.a16z.com renders ~25 newest cards per search, each linking to the employer's own form; a watch unites a few searches (software, ML, AI, data, new grad) and queues like Lenny's. ycombinator.com/jobs carries its postings as page data with minimum experience and a visa line; "4+ years" roles are left out in code, and the watch is list-only (`hold`) because applying is on Work at a Startup behind the person's YC login. Wellfound needs a login to search or apply and blocks automated access, so it is not a source. Measured live: a16z 122 roles, YC 27. The follow fix: comparing a board with its `via`/`hold` flags made every followed board look new and re-verified on every Lenny's check.
+

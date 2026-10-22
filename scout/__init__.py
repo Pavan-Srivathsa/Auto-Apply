@@ -146,6 +146,13 @@ def detect(url: str) -> tuple[str, dict, str]:
     parts = [p for p in parsed.path.split("/") if p]
     query = parse_qs(parsed.query)
 
+    if host == "jobs.a16z.com":
+        from scout import a16z
+        return "a16z", {"queries": list(a16z.QUERIES)}, "a16z portfolio"
+    if host.endswith("ycombinator.com") and parts[:1] == ["jobs"]:
+        from scout import yc
+        # Applying is on Work at a Startup behind the person's YC login: list only.
+        return "yc", {"roles": list(yc.ROLES), "hold": True}, "Y Combinator"
     if host.endswith("lennysjobs.com"):
         from scout import lennys
         return "lennys", {"category": lennys.CATEGORY, "levels": list(lennys.LEVELS),
@@ -208,4 +215,5 @@ def detect(url: str) -> tuple[str, dict, str]:
             raise DetectError("Eightfold URL needs ?domain=<company domain>")
         return "eightfold", {"host": host, "domain": domain}, domain.split(".")[0]
     raise DetectError(f"No provider for {host}. Supported: Greenhouse, Lever, Ashby, BambooHR, Workday, "
-                      "SmartRecruiters, Oracle, Eightfold/Microsoft, Google, Amazon, Apple, Lenny's Jobs")
+                      "SmartRecruiters, Oracle, Eightfold/Microsoft, Google, Amazon, Apple, Lenny's Jobs, "
+                      "jobs.a16z.com, ycombinator.com/jobs")
