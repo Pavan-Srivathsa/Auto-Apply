@@ -23,6 +23,8 @@ def no_jev(monkeypatch):
 
 def jev_answers(levels, invented=0.1):
     def ask(state, questions, model=None, client=None):
+        if "sentences" in state:                     # the per-sentence check on a flagged draft
+            return {name: {"noul": 0.9 if i == 0 else 0.1} for i, name in enumerate(questions)}
         assert set(questions) == {p.name for p in critic.EMAIL} | {"invented"}
         assert state["brief"][1]["evidence"] is None             # a gap goes to Jev as null
         assert "sources" not in state or "resumeItem" not in str(state["sources"])   # sources as plain text
@@ -46,7 +48,8 @@ def test_an_inventing_draft_is_capped_and_told_to_stop(monkeypatch):
     monkeypatch.setattr(jev, "ask", jev_answers({p.name: 2 for p in critic.EMAIL}, invented=0.9))
     c = critic.judge("email", "Airflow, 2M rows a day, and I ran Spark on 10TB.", BRIEF,
                      sources={"resume": r"\resumeItem{Built an Airflow pipeline moving 2M rows a day}"})
-    assert c.score == critic.INVENTED_CAP and "claim nothing new" in c.fixes[0]
+    assert c.score == critic.INVENTED_CAP
+    assert c.fixes[0].startswith("Cut or rewrite this sentence") and "Spark on 10TB" in c.fixes[0]
 
 
 def test_an_unanswered_requirement_with_evidence_is_the_first_fix(monkeypatch):
@@ -118,8 +121,8 @@ def test_the_email_writer_revises_with_the_notes_and_keeps_its_rules(monkeypatch
 
     body = ("Hi Rita,\n\n" + "I built an Airflow pipeline moving 2M rows a day for an analytics team. " * 3
             + "\n\nWould you be the right person to ask about the Data Engineer role?\n\nBest,\nJane Doe")
-    first = f"```subject\nData Engineer role at Acme\n```\n```email\n{body}\n```"
-    better = first.replace("Data Engineer role at Acme", "Rita, the Data Engineer role at Acme")
+    first = f"```subject\nRita, Data Engineer at Acme\n```\n```email\n{body}\n```"
+    better = first.replace("Rita, Data Engineer at Acme", "Rita, the Data Engineer role at Acme")
     replies = iter([first, better])
     asked = []
 

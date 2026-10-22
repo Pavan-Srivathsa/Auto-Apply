@@ -11,6 +11,9 @@ about one role.
   technology, or motivation.
 - Address the contact by first name when known. Name the role and company
   exactly as supplied.
+- Never bridge to the company with a claim the candidate's record does not show
+  ("a bar I have worked against", "where I have spent most of my time"): state
+  what they did, plainly, and let the reader connect it.
 - Use one proof point that best matches the role. Do not summarize the whole
   resume and do not repeat a list of technologies.
 - The ask is small and direct: whether they are the right person to speak with,
@@ -38,6 +41,10 @@ partner):
 - Natural, direct, professional first-person voice. No "I am excited to
   apply", "passionate", "perfect fit", "leverage", or "hope this email finds
   you well".
-- The subject is 4 to 9 words, specific to the role, and contains no clickbait.
+- The subject is 4 to 9 words and opens with the reader's first name, then one
+  specific hook about this role or this company: "Priya, evals for clinical
+  agents", "Morgan, I would love to join Globex". Never only the role and
+  company, never clickbait.
+- Open with "Hi <first name>," on its own line.
 - Close with "Best," and the candidate's name exactly as it appears in the
   resume.

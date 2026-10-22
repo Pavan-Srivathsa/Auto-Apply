@@ -90,6 +90,15 @@ def ensure_email(job_id: str, contact: Contact) -> Contact:
     return contact
 
 
+def peers(job_id: str, contact_id: str) -> tuple:
+    """(name, body) of the first emails already written to this job's other
+    contacts: colleagues compare notes, so each email must differ."""
+    state = store.get(job_id)
+    names = {c.id: c.name for c in state.contacts}
+    return tuple((names.get(d.contact_id, "a colleague"), d.body) for d in state.drafts
+                 if d.contact_id != contact_id and d.followup == 0 and d.status in ("draft", "sending", "sent"))
+
+
 def write_draft(job, app_dir: Path, contact: Contact, attach_resume: bool) -> Draft:
     if not contact.email:
         raise DraftError(409, "find or enter an email before drafting")
@@ -97,7 +106,7 @@ def write_draft(job, app_dir: Path, contact: Contact, attach_resume: bool) -> Dr
         return writer.draft(
             context(app_dir), contact, job.title, job.company,
             candidate_name(app_dir), attach_resume, app_dir.name,
-            brief=briefs.load(app_dir),
+            brief=briefs.load(app_dir), peers=peers(job.id, contact.id),
         )
     except writer.OutreachError as exc:
         raise DraftError(502, str(exc)) from None

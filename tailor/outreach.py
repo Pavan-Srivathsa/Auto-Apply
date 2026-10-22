@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,12 +55,34 @@ def _block(reply: str, name: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def problems(subject: str, body: str) -> list[str]:
+SIMILAR = 0.55        # a draft this close to a colleague's (difflib ratio) is a copy, not a second email
+
+
+def first_name(name: str) -> str:
+    return (name or "").strip().split(" ")[0].strip(",.")
+
+
+def _core(body: str) -> str:
+    """The email without its greeting and sign-off, for comparing two."""
+    lines = [l for l in body.strip().splitlines() if l.strip()]
+    return " ".join(lines[1:-2]) if len(lines) > 3 else " ".join(lines)
+
+
+def problems(subject: str, body: str, first: str = "", peers: tuple = ()) -> list[str]:
+    """What the code can see is wrong. `first` is the reader's first name;
+    `peers` are (name, body) of the emails already written to colleagues at
+    the same company, which this one must not repeat."""
     found = []
     subject_words = len(subject.split())
     words = len(body.split())
     if not 4 <= subject_words <= 9:
         found.append(f"the subject was {subject_words} words; use 4 to 9")
+    if first and not subject.lower().startswith(first.lower()):
+        # The person's screenshot: "Morgan, I would love to join Globex".
+        found.append(f'the subject must open with "{first}," and then a specific hook, '
+                     f'e.g. "{first}, evals for clinical agents", never only the role and company')
+    if first and not re.match(rf"^\s*Hi {re.escape(first)},\s*$", body.splitlines()[0] if body else "", re.I):
+        found.append(f'the email must open with "Hi {first}," on its own line')
     if not MIN_WORDS <= words <= MAX_WORDS:
         found.append(f"the email was {words} words; use {MIN_WORDS} to {MAX_WORDS}")
     if not re.search(r"^Best,\s*$", body, re.I | re.M):
@@ -68,7 +91,35 @@ def problems(subject: str, body: str) -> list[str]:
         found.append("the email used markdown or a list")
     if cover.has_dash(body):
         found.append("the email used a dash as punctuation")
+    mine_open, mine_figures = _opening(body), _figures(body)
+    for name, other in peers:
+        if difflib.SequenceMatcher(None, _core(body).lower(), _core(other).lower()).ratio() > SIMILAR:
+            found.append(f"the email is too close to the one already written to {name}; they work together and "
+                         "will compare: open differently and use a different proof point")
+            break
+        if difflib.SequenceMatcher(None, mine_open, _opening(other)).ratio() > OPEN_SIMILAR:
+            found.append(f"the first sentence is the same idea as the email to {name} opens with; open differently")
+            break
+        shared = mine_figures & _figures(other)
+        if len(shared) >= 2:
+            found.append(f"the proof point is the one already used for {name} ({', '.join(sorted(shared))}); "
+                         "use a different achievement for this person")
+            break
     return found
+
+
+OPEN_SIMILAR = 0.6
+
+
+def _opening(body: str) -> str:
+    """The first sentence after the greeting, lowercased."""
+    core = _core(body)
+    return re.split(r"(?<=[.!?])\s+", core, maxsplit=1)[0].lower() if core else ""
+
+
+def _figures(body: str) -> set[str]:
+    """The numbers an email states: the same ones mean the same proof point."""
+    return {m.group(0).rstrip("%") for m in re.finditer(r"\d[\d,.]*%?", _core(body)) if len(m.group(0)) > 1}
 
 
 def _joined(subject: str, body: str) -> str:
@@ -82,7 +133,8 @@ def _split(text: str) -> tuple[str, str]:
 
 def write(context: Context, contact: Contact, job_title: str, company: str,
           candidate_name: str, attach_resume: bool = True,
-          model: Optional[str] = None, brief: Optional[briefs.Brief] = None) -> Written:
+          model: Optional[str] = None, brief: Optional[briefs.Brief] = None,
+          peers: tuple = ()) -> Written:
     if not context.posting or not context.resume_tex:
         raise OutreachError("the posting and tailored resume are required")
     if not contact.name:
@@ -96,7 +148,11 @@ def write(context: Context, contact: Contact, job_title: str, company: str,
         f"Job: {job_title}\n"
         f"Candidate name: {candidate_name}\n"
         f"Tailored resume attached: {'yes' if attach_resume else 'no'}"
-    )
+    ) + ("".join(
+        ["\n\n## Already written to colleagues at this company\n\nThey work together and will compare. "
+         "Open differently and use a different proof point from the ones below.\n"]
+        + [f"\n### To {name}\n{body}\n" for name, body in peers]) if peers else "")
+    first = first_name(contact.name)
     last_subject = last_body = ""
     last_problems = []
     for attempt in range(1, ATTEMPTS + 1):
@@ -106,10 +162,12 @@ def write(context: Context, contact: Contact, job_title: str, company: str,
         subject = " ".join(_block(reply, "subject").split())
         body = _block(reply, "email").strip()
         last_subject, last_body = subject, body
-        last_problems = problems(subject, body)
+        last_problems = problems(subject, body, first, peers)
         if not last_problems:
             return _refined(Written(subject, body, model, attempt), user, model, brief,
-                            sources={"resume": context.resume_tex, "stories": context.profile})
+                            sources={"resume": context.resume_tex, "stories": context.profile,
+                                     "posting": context.posting},
+                            check=lambda text: problems(*_split(text), first, peers))
         user += (
             "\n\n## Previous reply rejected\n\n"
             + "; ".join(last_problems)
@@ -123,7 +181,7 @@ def write(context: Context, contact: Contact, job_title: str, company: str,
 
 
 def _refined(written: Written, user: str, model: str, brief: Optional[briefs.Brief],
-             sources: Optional[dict] = None) -> Written:
+             sources: Optional[dict] = None, check=None) -> Written:
     """Judge the email against the brief and revise while it improves
     (tailor.critic). A revision must pass `problems` like the first draft."""
     if brief is not None:
@@ -136,7 +194,7 @@ def _refined(written: Written, user: str, model: str, brief: Optional[briefs.Bri
 
     review = critic.refine(
         "email", _joined(written.subject, written.body), brief, revise,
-        check=lambda text: problems(*_split(text)),
+        check=check or (lambda text: problems(*_split(text))),
         subject_of=lambda text: _split(text)[0], body_of=lambda text: _split(text)[1],
         sources=sources,
     )
@@ -148,10 +206,10 @@ def _refined(written: Written, user: str, model: str, brief: Optional[briefs.Bri
 def draft(context: Context, contact: Contact, job_title: str, company: str,
           candidate_name: str, attach_resume: bool = True,
           resume_folder: str = "", model: Optional[str] = None,
-          brief: Optional[briefs.Brief] = None) -> Draft:
+          brief: Optional[briefs.Brief] = None, peers: tuple = ()) -> Draft:
     written = write(
         context, contact, job_title, company, candidate_name,
-        attach_resume=attach_resume, model=model, brief=brief,
+        attach_resume=attach_resume, model=model, brief=brief, peers=peers,
     )
     return Draft.create(
         contact_id=contact.id,

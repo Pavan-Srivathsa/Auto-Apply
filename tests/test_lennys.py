@@ -110,7 +110,7 @@ def stub_drafting(monkeypatch, folder):
     monkeypatch.setattr(mailing, "send_message", lambda message: sent.append(message))
     monkeypatch.setattr(drafting, "candidate_name", lambda app_dir: "Jane Doe")
     monkeypatch.setattr(drafting, "context", lambda app_dir: object())
-    monkeypatch.setattr(writer, "draft", lambda ctx, c, title, company, name, attach, folder_name, brief=None:
+    monkeypatch.setattr(writer, "draft", lambda ctx, c, title, company, name, attach, folder_name, brief=None, peers=():
                         Draft.create(c.id, f"Note for {c.name}", f"Hi {c.name}, a grounded note.", resume_folder=folder.name))
     return sent
 

@@ -194,3 +194,8 @@ Asked: Write emails answered "HTTP 500".
 Changed: `server/app.py` (an `LLMError` anywhere becomes a 502 with the reason: the key's spending limit, a refused key, or the error's first line), `tests/test_outreach.py`.
 Intent: The OpenRouter key had hit its monthly limit and the error escaped as a crash. The person has since put a new key in the data folder's `.env` (limit $50); the server is restarted to read it.
 
+## 2026-10-22 — Cold emails that pass the loop, and differ person to person
+Asked: "The email generator is really bad. Put it into a loop, and make sure it works again ... test it on Alchemi."
+Changed: `tailor/outreach.py` (code checks: the subject opens with the reader's first name and a hook, "Hi <first>," greeting, and no email may repeat a colleague's wording, opening sentence or figures; `write(peers=)`; the posting is a source), `outreach/drafting.py` (`peers`: the emails already written to the job's other contacts), `tailor/critic.py` (the posting may back statements about the company; a flagged email is told which sentence to cut), `tailor/outreach_rules.md` (no bridging claims; the subject and greeting), tests.
+Intent: On Alchemi the loop scored two of three drafts 3/10 for "invented" sentences ("a bar I have worked against"), told the writer only "remove every unsupported claim", and threw every revision away; all three were near-copies with the subject "AI Engineer role at Alchemi". Measured after: 9, 8 and 8, three openings and three proof points (BlackBuckInsights and DAPTA; Koantek RAG and fine-tuning; USC fraud evaluation), subjects like "Sam, agents for drug development timelines".
+

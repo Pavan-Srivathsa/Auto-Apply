@@ -131,7 +131,7 @@ def test_jobright_requires_linkedin_and_an_open_finder(monkeypatch):
 
 def test_outreach_writer_retries_bad_shape(monkeypatch):
     good = """```subject
-ML platform role at Acme
+Rita, ML platform role at Acme
 ```
 ```email
 Hi Rita,
@@ -155,7 +155,7 @@ Jane Doe
         Contact.create("recruiter", "Rita", email="rita@acme.com"),
         "Machine Learning Engineer", "Acme", "Jane Doe",
     )
-    assert result.attempts == 2 and result.subject == "ML platform role at Acme"
+    assert result.attempts == 2 and result.subject == "Rita, ML platform role at Acme"
     assert result.body.endswith("Jane Doe")
 
 
@@ -292,3 +292,42 @@ def test_a_refused_model_call_reads_as_why_not_http_500(tmp_path, monkeypatch):
     monkeypatch.setattr(writer, "draft", refused)
     res = client.post(f"/review/{job.id}/outreach/drafts", json={"contact_ids": [rita["id"]]})
     assert res.status_code == 502 and "spending limit" in res.json()["detail"]
+
+
+def test_the_email_rules_the_code_can_check():
+    body = "Hi Priya,\n\n" + "I built a production data copilot that answered 700 weekly queries for analysts. " * 5 + "\n\nBest,\nPavan"
+    assert writer.problems("Priya, evals for clinical agents", body, "Priya") == []
+    assert any("must open with \"Priya,\"" in p for p in writer.problems("AI Engineer role at Alchemi now", body, "Priya"))
+    assert any('"Hi Priya,"' in p for p in writer.problems("Priya, evals for clinical agents", body.replace("Hi Priya", "Dear Priya"), "Priya"))
+    copy = body.replace("Priya", "Sam")
+    assert any("too close to the one already written to Priya" in p
+               for p in writer.problems("Sam, agents for clinical teams", copy, "Sam", (("Priya", body),)))
+
+
+def test_a_flagged_email_is_told_which_sentence_to_cut(monkeypatch):
+    from tailor import critic, jev
+    monkeypatch.setenv("JEV_API_KEY", "key")
+    doc = ("Alchemi builds agents for clinical teams, which is a bar I have worked against. "
+           "I cut query failures 70% with SQL validation.")
+
+    def ask(state, questions, **kw):
+        if "sentences" in state:
+            return {"s0": {"noul": 0.8}, "s1": {"noul": 0.1}}
+        out = {name: {"score": 1.9} for name in questions if name != "invented"}
+        out["invented"] = {"noul": 0.9}
+        return out
+
+    monkeypatch.setattr(jev, "ask", ask)
+    c = critic.judge("email", doc, None, subject="Priya, agents", sources={"resume": "cut query failures 70%"})
+    assert c.fixes[0].startswith("Cut or rewrite this sentence") and "a bar I have worked against" in c.fixes[0]
+
+
+def test_colleagues_get_a_different_opening_and_a_different_proof_point():
+    priya = ("Hi Priya,\n\nAlchemi's bet is that trusted agents are the product. I built a copilot answering "
+            "600 to 800 queries a week and cut failures 70% with validation. " * 2 + "\n\nBest,\nPavan")
+    same_open = priya.replace("Priya", "Sam").replace("600 to 800 queries a week and cut failures 70%", "an eval harness on 83 documents")
+    same_proof = ("Hi Sam,\n\nRegulated workflows need measured quality. My copilot served 600 to 800 queries "
+                  "and cut failures 70% through SQL validation and retries for business users. " * 2 + "\n\nBest,\nPavan")
+    assert any("first sentence" in p for p in writer.problems("Sam, measured agents", same_open, "Sam", (("Priya", priya),)))
+    assert any("proof point is the one already used for Priya" in p
+               for p in writer.problems("Sam, measured agents", same_proof, "Sam", (("Priya", priya),)))

@@ -204,17 +204,49 @@ def judge_jev(kind: str, document: str, brief: Optional[briefs.Brief], subject: 
     rubric = RUBRICS[kind]
     questions = {p.name: jev.score(p.question, list(p.levels)) for p in rubric}
     questions["invented"] = jev.noul(
-        {"question": "Does `draft` claim a skill, employer, achievement, number or relationship that neither "
-                     "`sources.resume` nor `sources.stories` supports?",
+        {"question": "Does `draft` claim a skill, employer, achievement, number, experience or relationship of "
+                     "the candidate that neither `sources.resume` nor `sources.stories` supports?",
          "focus": "Rewording, reordering and the posting's vocabulary for the same work are fine, and so are "
-                  "opinions and interest in the role. Only a fact with no support in either source counts."},
+                  "opinions and interest in the role. Statements about the company may rest on "
+                  "`sources.posting`. Only a fact about the candidate with no support counts."},
         {"true": "At least one claim has no support in either source",
          "false": "Every claim is supported by a source"})
     answers = jev.ask(_state(document, brief, subject, sources), questions)
     points = {p.name: float(answers[p.name]["score"]) for p in rubric}
     invented = float(answers["invented"]["noul"])
     score, raw, fixes = _scored(rubric, points, invented)
+    if invented > INVENTED and sources:
+        # Name the sentence: "remove every unsupported claim" told the writer
+        # nothing it could act on, and every revision repeated the claim
+        # (Alchemi, 2026-10-22: "which is a bar I have worked against").
+        flagged = _flagged_sentences(document, sources)
+        if flagged:
+            fixes = [f'Cut or rewrite this sentence; it claims something the candidate\'s record does not show: "{f}"'
+                     for f in flagged] + fixes[1:]
     return Critique(score=score, points=points, fixes=fixes, judge="jev", invented=invented, raw=raw)
+
+
+SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _flagged_sentences(document: str, sources: dict, limit: int = 2) -> list[str]:
+    """The sentences of `document` Jev reads as claims the candidate's record
+    does not support, most doubtful first. One request, every sentence in
+    parallel."""
+    sentences = [s.strip() for s in SENTENCE.split(" ".join(document.split())) if len(s.strip()) > 25]
+    if not sentences:
+        return []
+    state = {"sentences": sentences,
+             "sources": {k: " ".join(briefs._plain(v).split()) for k, v in sources.items() if v and v.strip()}}
+    questions = {f"s{i}": jev.noul(
+        f"Does `sentences[{i}]` claim something about the candidate that `sources.resume` and `sources.stories` "
+        "do not support?") for i in range(len(sentences))}
+    try:
+        answers = jev.ask(state, questions)
+    except jev.JevError:
+        return []
+    scored = sorted(((float(answers[f"s{i}"]["noul"]), s) for i, s in enumerate(sentences)), reverse=True)
+    return [s for p, s in scored if p > INVENTED][:limit]
 
 
 def judge_text(kind: str, document: str, brief: Optional[briefs.Brief], subject: str = "",
