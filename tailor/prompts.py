@@ -115,6 +115,12 @@ CATALOG: tuple[Prompt, ...] = (
            "The plain one-line reason for each requirement you only partly meet or miss. "
            "Jev rates the levels when its key is set; the verdict is counted in code.",
            _const("tailor.qualify", "PROMPT")),
+    Prompt("bank.draft", "Bullet bank drafts", "Tailoring",
+           "How resume bullets are drafted for one job from its interview story, for one posting. "
+           "Kept in the bullet bank only when every fact is on file and Jev rates it strong.",
+           _const("tailor.bank", "DRAFT_PROMPT")),
+    Prompt("bank.format", "Bullet bank reply format", "Tailoring", FORMAT_NOTE,
+           _const("tailor.bank", "DRAFT_FORMAT")),
     Prompt("answers", "Form answers", "Tailoring",
            "How the open questions on a form are answered. Visa questions are "
            "refused in code whatever this says.",

@@ -25,6 +25,7 @@ from browser import autofill, chrome
 from server import postings, queue, runner, seen, settings
 from server import screen as screen_server
 from server.models import Job, Status
+from tailor import bank
 from tailor import brief as briefs
 from tailor import cover, critic, fetch, layout, profile, quality, qualify, resume_bases, tailor
 from tex import compile as texc
@@ -214,8 +215,14 @@ def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
     resume_bases.copy_assets(base, app_dir)
     profile_text = tailor.load_profile(stories=stories)
     brief = write_brief(app_dir, posting, master, profile_text)
+    options = ""
     if brief:
         write_qualify(app_dir, brief, master, profile_text)
+        options, bank_stories = write_bullets(app_dir, brief, master)
+        if bank_stories:
+            # The banked bullets' facts are in their jobs' stories: the tailoring's
+            # invention check has to see those stories too.
+            profile_text = tailor.load_profile(stories=list(dict.fromkeys(stories + bank_stories)))
     result = tailor.tailor(
         posting,
         resume_tex=master,
@@ -226,8 +233,9 @@ def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
         model=model,
         layout_pdf=base.pdf_path,
         brief=brief.as_message() if brief else "",
+        options=options,
     )
-    result = review_resume(app_dir, posting, master, result, brief, profile_text, base, model)
+    result = review_resume(app_dir, posting, master, result, brief, profile_text, base, model, options)
     store.write(app_dir, "resume.tex", result.tex)
     store.write(app_dir, "resume.diff", result.diff or "(no changes)\n")
     store.write(
@@ -488,7 +496,7 @@ RESUME_ROUNDS = 1   # each revision is a full tailoring pass with compiles; one 
 
 
 def review_resume(app_dir: Path, posting, master: str, result, brief, profile_text: str,
-                  base, model: Optional[str]):
+                  base, model: Optional[str], options: str = ""):
     """Judge the tailored resume against the brief and revise it once while
     it improves (tailor.critic). The revision starts from the tailored resume
     and goes through every check tailoring has (lines, counts, links,
@@ -503,7 +511,7 @@ def review_resume(app_dir: Path, posting, master: str, result, brief, profile_te
             extra_instruction="An editor reviewed this tailored resume. Apply these notes:\n"
                               + "\n".join(f"- {fix}" for fix in fixes),
             profile=profile_text, model=model, layout_pdf=base.pdf_path,
-            brief=brief.as_message() if brief else "", revision=True)
+            brief=brief.as_message() if brief else "", revision=True, options=options)
         revised[again.tex] = again
         return again.tex
 
@@ -538,6 +546,24 @@ def write_brief(app_dir: Path, posting, master: str, profile_text: str) -> Optio
     gaps = sum(1 for r in brief.musts() if r.gap)
     print(f"  brief: {len(brief.requirements)} requirements, {gaps} required without evidence")
     return brief
+
+
+def write_bullets(app_dir: Path, brief, master: str) -> tuple[str, list[str]]:
+    """Bullets for every job on the resume, for this posting, from the
+    bullet bank first and fresh drafts where it is short (tailor.bank).
+    The master is never changed; the tailoring gets them as options.
+    Not fatal. Returns (the tailoring's section, the stories they came from)."""
+    try:
+        result = bank.for_job(brief, master, job_key=app_dir.name)
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        store.write(app_dir, "bullets_error.txt", f"{type(exc).__name__}: {exc}\n")
+        print(f"  bullet bank failed: {exc}", file=sys.stderr)
+        return "", []
+    store.write(app_dir, "bullets.json", json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+    reused = sum(len(j["reused"]) for j in result["jobs"])
+    banked = sum(1 for j in result["jobs"] for b in j["drafted"] if b.get("banked"))
+    print(f"  bullets: {reused} from the bank, {banked} new into it")
+    return bank.options(result), result.get("stories", [])
 
 
 def write_qualify(app_dir: Path, brief, master: str, profile_text: str) -> None:

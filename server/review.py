@@ -220,6 +220,26 @@ def detail(job_id: str) -> dict:
     }
 
 
+def _ats(brief, resume: str) -> Optional[dict]:
+    """The posting's own terms (the brief's spellings) found in the finished
+    resume, the way an ATS keyword filter reads it. A missing term with
+    evidence on file is fixable; one without is shown, never added."""
+    if not resume:
+        return None
+    seen, rows = set(), []
+    for req in sorted(brief.requirements, key=lambda r: r.kind != "must"):
+        for term in req.terms:
+            key = briefs.loose(term)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            rows.append({"term": term, "present": briefs.mentions(resume, term), "evidence": not req.gap})
+    present = sum(1 for r in rows if r["present"])
+    return {"present": present, "total": len(rows),
+            "missing_fixable": [r["term"] for r in rows if not r["present"] and r["evidence"]],
+            "missing_no_evidence": [r["term"] for r in rows if not r["present"] and not r["evidence"]]}
+
+
 def _readable(quote: str) -> str:
     """A resume line as it prints: LaTeX dashes and escapes as their characters."""
     quote = quote.replace("---", "\u2014").replace("--", "\u2013")
@@ -265,6 +285,7 @@ def _fit(app_dir: Path) -> Optional[dict]:
         "musts_gap": sum(1 for row in rows if row["kind"] == "must" and row["gap"]),
         "in_resume": sum(1 for row in answerable if row["in_resume"]),
         "judged_by_jev": any(row["strength"] is not None for row in rows),
+        "ats": _ats(brief, resume),
         "letter": scored("cover_review.json"),
         "resume": scored("resume_review.json"),
         "verdict": {"call": assessment["verdict"], "summary": assessment["summary"],

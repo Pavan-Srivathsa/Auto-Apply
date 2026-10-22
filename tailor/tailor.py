@@ -827,6 +827,7 @@ def tailor(
     layout_pdf: Optional[Path] = None,
     brief: str = "",
     revision: bool = False,
+    options: str = "",
 ) -> TailorResult:
     """Tailor the resume, retrying while it does not fit on `target_pages`.
 
@@ -843,6 +844,9 @@ def tailor(
     width = layout.chars_per_line(layout_pdf)
 
     message = _build_user_message(posting, original, profile, width, brief)
+    if options:
+        # Checked bullets from the bullet bank (tailor.bank): options, never orders.
+        message += "\n\n" + options
     if extra_instruction.strip():
         # The reviewer's words carry more weight than the model's own earlier
         # judgement, but not more than the rules: they are appended to the

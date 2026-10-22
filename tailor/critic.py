@@ -153,8 +153,16 @@ def _missing(kind: str, brief: Optional[briefs.Brief], document: str) -> list[br
 
 
 def _coverage_fixes(kind: str, brief: Optional[briefs.Brief], document: str) -> list[str]:
-    return [f'Answer the required item "{r.text}" with this evidence: "{r.evidence}".'
-            for r in _missing(kind, brief, document)]
+    fixes = [f'Answer the required item "{r.text}" with this evidence: "{r.evidence}".'
+             for r in _missing(kind, brief, document)]
+    if kind == "resume" and brief:
+        # The ATS side: the posting's exact term, missing from a resume whose
+        # evidence shows the work. Never a term with nothing on file.
+        terms = [(t, r) for r in brief.requirements if not r.gap for t in r.terms
+                 if not briefs.mentions(document, t)]
+        fixes += [f'Use the posting\'s term "{t}" where the evidence shows that work: "{r.evidence}".'
+                  for t, r in terms[:3]]
+    return fixes
 
 
 def _to_ten(levels: list[float]) -> int:

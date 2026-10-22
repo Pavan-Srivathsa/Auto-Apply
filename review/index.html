@@ -770,7 +770,12 @@ function fitHtml(fit) {
         <span>Required, answered in the resume <strong>${fit.in_resume}/${fit.musts}</strong></span>
         ${fit.musts_gap ? `<span>Required with nothing on file <strong style="color:var(--red)">${fit.musts_gap}</strong></span>` : ""}
         ${letterScore}
+        ${fit.ats ? `<span>ATS keywords <strong>${fit.ats.present}/${fit.ats.total}</strong></span>` : ""}
         <span class="hint">${fit.judged_by_jev ? "Evidence checked by Jev." : "Evidence checked against your files."}</span>
+      </div>
+      ${fit.ats && (fit.ats.missing_fixable.length || fit.ats.missing_no_evidence.length) ? `<div class="sum hint">
+        ${fit.ats.missing_fixable.length ? `<span>Missing, but on file: ${fit.ats.missing_fixable.map(escape).join(", ")}</span>` : ""}
+        ${fit.ats.missing_no_evidence.length ? `<span>Missing, nothing on file (left out): ${fit.ats.missing_no_evidence.map(escape).join(", ")}</span>` : ""}
       </div>
       <table>${rows}</table>
     </div>`;
@@ -2364,7 +2369,7 @@ const Resumes = (() => {
 
   async function refresh() {
     state = await api("/setup");
-    if (viewing !== "add" && !(state.resumes || []).some((row) => row.id === viewing)) {
+    if (viewing !== "add" && viewing !== "bank" && !(state.resumes || []).some((row) => row.id === viewing)) {
       viewing = "add";
     }
   }
@@ -2384,7 +2389,9 @@ const Resumes = (() => {
     const rows = state?.resumes || [];
     $("count").textContent = `${rows.filter((row) => row.active).length} active resumes`;
     $("list").innerHTML = `<button class="row" data-resume="add" data-tone="agent" aria-current="${viewing === "add"}">
-        <span class="role">Add resume</span><span class="cov">LaTeX source</span></button>` +
+        <span class="role">Add resume</span><span class="cov">LaTeX source</span></button>
+      <button class="row" data-resume="bank" data-tone="agent" aria-current="${viewing === "bank"}">
+        <span class="role">Bullet bank</span><span class="cov">drafted from your stories</span></button>` +
       rows.map((row) => `<button class="row" data-resume="${escape(row.id)}"
           data-tone="${row.active ? "done" : "stop"}" aria-current="${viewing === row.id}">
           <span class="role">${escape(row.label)}${row.primary ? " · primary" : ""}</span>
@@ -2411,7 +2418,32 @@ const Resumes = (() => {
     </div>`;
   }
 
+  // Bullets drafted for jobs from the knowledge base and kept because every
+  // fact is on file and Jev rated them strong (tailor.bank). The master
+  // resumes are never changed by them; tailoring offers them as options.
+  async function renderBank() {
+    renderNav();
+    const rows = (await api("/bullets")).bullets || [];
+    const byCompany = {};
+    for (const b of rows) (byCompany[b.company] ||= []).push(b);
+    $("detail").innerHTML = `<div class="head"><h2>Bullet bank</h2><span class="state agent">${rows.length} bullets</span></div>
+      <p class="hint">Written for postings from your interview stories. Kept only when every number and name is on file and Jev rated it supported and strong. Your master resumes never change; tailoring may use one of these in place of a weaker bullet under the same job. Delete any you would not sign.</p>
+      ${Object.entries(byCompany).map(([company, list]) => `<h3>${escape(company)} · ${list.length}</h3>
+        <div class="card">${list.map((b) => `<div class="hit">
+          <div class="t">${escape(b.text)}</div>
+          <div class="m">${escape(b.role)}${b.terms?.length ? ` · terms: ${b.terms.map(escape).join(", ")}` : ""}
+            · strength ${b.rating ?? "–"} · supported ${b.supported ?? "–"} · used ${b.uses}× · from ${escape((b.sources || []).join(", "))}</div>
+          <div class="actions"><button class="act danger" data-bullet="${escape(b.id)}">Delete</button></div></div>`).join("")}</div>`).join("")
+        || `<p class="empty">Empty. Bullets are drafted the next time a job is tailored.</p>`}`;
+    for (const button of $("detail").querySelectorAll("[data-bullet]")) button.onclick = async () => {
+      if (!confirm("Delete this bullet from the bank?")) return;
+      await api(`/bullets/${button.dataset.bullet}`, { method: "DELETE" });
+      renderBank();
+    };
+  }
+
   function render() {
+    if (viewing === "bank") return renderBank();
     renderNav();
     const row = (state?.resumes || []).find((item) => item.id === viewing);
     if (!row) {
