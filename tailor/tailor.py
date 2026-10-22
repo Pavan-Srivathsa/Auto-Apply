@@ -690,6 +690,31 @@ def _check_links(original: str, tailored: str, profile: str) -> None:
                           f"resume nor a story's Link line: {', '.join(sorted(set(strange)))}")
 
 
+ROLE_HEADING = re.compile(r"\\[A-Za-z]*[Ss]ub[Hh]eading\s*\{([^{}]*)\}\s*\{([^{}]*)\}")
+
+
+def roles(tex: str) -> list[str]:
+    """The jobs under EXPERIENCE, in order, as their first two heading fields
+    ("AI Engineer · BlackBuckInsights"). Empty for a layout without
+    subheading macros, where the order is not checked."""
+    body = split_sections(tex).get("EXPERIENCE", "")
+    return [" · ".join(" ".join(part.split()) for part in m.groups()) for m in ROLE_HEADING.finditer(body)]
+
+
+def _check_role_order(original: str, tailored: str) -> None:
+    """Jobs stay in the master's (date) order. Projects may move to put the
+    best match first; a job moved above a newer one reads as a mistake to a
+    recruiter, and the rules said "reorder entries" for both (2026-10-21)."""
+    before, after = roles(original), roles(tailored)
+    if len(before) < 2 or sorted(before) != sorted(after) or before == after:
+        return
+    moved = next(job for job, was in zip(after, before) if job != was)
+    raise TailorError(
+        f"moved a job out of date order: {moved} is not where the master has it. Jobs under "
+        f"EXPERIENCE stay in this order: {'; '.join(before)}. Reorder the bullets inside a job, "
+        "or move PROJECTS entries, instead")
+
+
 def _validate(original: str, tailored: str, profile: str = "", posting: str = "",
               width: Optional[int] = None) -> list[str]:
     """Structural checks, cheapest first. Returns non-fatal warnings."""
@@ -701,6 +726,7 @@ def _validate(original: str, tailored: str, profile: str = "", posting: str = ""
         if command in original and command not in tailored:
             raise TailorError(f"tailored resume dropped {command}")
     _check_frozen_sections(original, tailored)
+    _check_role_order(original, tailored)
     _check_links(original, tailored, profile)
     # Lengths first: that is the check that protects the page, and a bullet
     # that overflowed is a more specific thing to be told than a figure in it.

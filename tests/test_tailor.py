@@ -511,3 +511,28 @@ def test_a_thin_run_on_the_last_attempt_is_a_warning_not_a_failure(monkeypatch):
     assert result.tex.strip() == thin.strip()
     assert any("EXPERIENCE bullets were rewritten" in w for w in result.warnings)
     assert any("bullet 2" in r for r in result.rejections)
+
+
+JOBS = r"""\documentclass{article}
+\begin{document}
+\section{Experience}
+\resumeSubheading{Research Intern}{USC}{Los Angeles}{2025}
+\resumeItem{Evaluated models}
+\resumeSubheading{AI Engineer}{BlackBuck}{Bangalore}{2024}
+\resumeItem{Built an inference service}
+\end{document}
+"""
+
+
+def test_jobs_stay_in_date_order_and_the_reason_is_named():
+    swapped = JOBS.replace(
+        "\\resumeSubheading{Research Intern}{USC}{Los Angeles}{2025}\n\\resumeItem{Evaluated models}\n", "").replace(
+        "\\resumeItem{Built an inference service}\n",
+        "\\resumeItem{Built an inference service}\n\\resumeSubheading{Research Intern}{USC}{Los Angeles}{2025}\n"
+        "\\resumeItem{Evaluated models}\n")
+    assert tailor.roles(JOBS) == ["Research Intern · USC", "AI Engineer · BlackBuck"]
+    assert tailor.roles(swapped) == ["AI Engineer · BlackBuck", "Research Intern · USC"]
+    with pytest.raises(tailor.TailorError, match="out of date order: AI Engineer · BlackBuck"):
+        tailor._check_role_order(JOBS, swapped)
+    tailor._check_role_order(JOBS, JOBS.replace("Built an", "Shipped an"))        # bullets may change
+    tailor._check_role_order(ORIGINAL, ORIGINAL)                                   # no subheadings: not checked
