@@ -29,6 +29,7 @@ from server import corrections, queue, runner, seen, thread as job_thread
 from server.models import REJECT_LABELS, Job, RejectReason, Status
 from tailor import answers, cover, fetch, llm, profile, resume_bases, tailor
 from tailor import brief as briefs
+from tailor import qualify
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -244,6 +245,10 @@ def _fit(app_dir: Path) -> Optional[dict]:
              "in_resume": briefs.covered(r, resume) if resume else None,
              "in_letter": briefs.covered(r, letter) if letter else None}
             for r in brief.requirements]
+    assessment = qualify.load(app_dir)
+    if assessment and len(assessment.get("items", [])) == len(rows):
+        for row, item in zip(rows, assessment["items"]):
+            row["level"], row["reason"] = item.get("level"), item.get("reason", "")
     answerable = [row for row in rows if row["kind"] == "must" and not row["gap"]]
     def scored(name: str) -> Optional[dict]:
         try:
@@ -262,6 +267,8 @@ def _fit(app_dir: Path) -> Optional[dict]:
         "judged_by_jev": any(row["strength"] is not None for row in rows),
         "letter": scored("cover_review.json"),
         "resume": scored("resume_review.json"),
+        "verdict": {"call": assessment["verdict"], "summary": assessment["summary"],
+                    "blockers": assessment.get("blockers", [])} if assessment else None,
     }
 
 

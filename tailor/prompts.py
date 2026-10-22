@@ -111,6 +111,10 @@ CATALOG: tuple[Prompt, ...] = (
            "How an answer to your outreach is read as positive, neutral or negative, and the "
            "one-line why the Slack alert shows. Jev decides the verdict when its key is set.",
            _const("tailor.replies", "PROMPT")),
+    Prompt("qualify", "Qualification reasons", "Tailoring",
+           "The plain one-line reason for each requirement you only partly meet or miss. "
+           "Jev rates the levels when its key is set; the verdict is counted in code.",
+           _const("tailor.qualify", "PROMPT")),
     Prompt("answers", "Form answers", "Tailoring",
            "How the open questions on a form are answered. Visa questions are "
            "refused in code whatever this says.",

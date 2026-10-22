@@ -140,6 +140,14 @@
   .fit td.gap { color: var(--red); font-style: italic; }
   .fit td.marks { width: 7.5rem; white-space: nowrap; font-size: 12px; text-align: right; }
   .fit .yes { color: var(--green); } .fit .no { color: var(--muted); }
+  .fit .verdict { border: 2px solid var(--ink); padding: .6rem .8rem; margin-bottom: .7rem; font-size: 14px; }
+  .fit .verdict strong { text-transform: uppercase; letter-spacing: .06em; margin-right: .5rem; }
+  .fit .verdict.qualified strong { color: var(--green); }
+  .fit .verdict.stretch strong { color: var(--warn, #b8860b); }
+  .fit .verdict.not_qualified { border-color: var(--red); } .fit .verdict.not_qualified strong { color: var(--red); }
+  .fit .level { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-top: .3rem; }
+  .fit .level.missing { color: var(--red); } .fit .level.partly { color: var(--warn, #b8860b); } .fit .level.meets { color: var(--green); }
+  .fit .why { display: block; color: var(--muted); font-size: 12px; margin-top: .2rem; }
   @media (max-width: 800px) { .fit td.marks { width: auto; } .fit td.ask { width: auto; } }
   table.kv.corr tr.th td { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   table.kv.corr td.was { color: var(--red); text-decoration: line-through; }
@@ -734,7 +742,9 @@ function fitHtml(fit) {
   const pct = (x) => x == null ? "" : ` <span class="hint" title="Jev's confidence that this line really meets the requirement">${Math.round(x * 100)}%</span>`;
   const mark = (v, label) => v == null ? "" : `<span class="${v ? "yes" : "no"}">${v ? "✓" : "·"} ${label}</span>`;
   const rows = fit.rows.map((r) => `<tr>
-      <td class="ask"><span class="kind">${r.kind === "must" ? "Required" : "Nice to have"}</span>${escape(r.text)}</td>
+      <td class="ask"><span class="kind">${r.kind === "must" ? "Required" : "Nice to have"}</span>${escape(r.text)}
+        ${r.level ? `<span class="level ${r.level}">${r.level === "meets" ? "Meets" : r.level === "partly" ? "Partly" : "Missing"}</span>` : ""}
+        ${r.reason ? `<span class="why">${escape(r.reason)}</span>` : ""}</td>
       ${r.gap ? `<td class="gap">Nothing on file. Left out rather than claimed.</td>`
               : `<td class="have"><q>${escape(r.evidence)}</q><span class="src">${escape(r.where === "profile" ? "story" : "resume")}</span>${pct(r.strength)}</td>`}
       <td class="marks">${mark(r.in_resume, "resume")}<br>${mark(r.in_letter, "letter")}</td></tr>`).join("");
@@ -743,6 +753,9 @@ function fitHtml(fit) {
   const letterScore = scoreOf("Resume", fit.resume) + scoreOf("Cover letter", fit.letter);
   return `<h3>What they want, what you have</h3>
     <div class="card fit">
+      ${fit.verdict ? `<div class="verdict ${fit.verdict.call}"><strong>${
+          {qualified: "Qualified", stretch: "Stretch", not_qualified: "Not qualified"}[fit.verdict.call] || ""}</strong>${
+          escape(fit.verdict.summary.replace(/^(Qualified|Stretch|Not qualified):\s*/, ""))}</div>` : ""}
       <div class="sum">
         <span>Required, answered in the resume <strong>${fit.in_resume}/${fit.musts}</strong></span>
         ${fit.musts_gap ? `<span>Required with nothing on file <strong style="color:var(--red)">${fit.musts_gap}</strong></span>` : ""}

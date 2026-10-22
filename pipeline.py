@@ -26,7 +26,7 @@ from server import postings, queue, runner, seen, settings
 from server import screen as screen_server
 from server.models import Job, Status
 from tailor import brief as briefs
-from tailor import cover, critic, fetch, layout, profile, quality, resume_bases, tailor
+from tailor import cover, critic, fetch, layout, profile, quality, qualify, resume_bases, tailor
 from tex import compile as texc
 from tex import mark
 
@@ -214,6 +214,8 @@ def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
     resume_bases.copy_assets(base, app_dir)
     profile_text = tailor.load_profile(stories=stories)
     brief = write_brief(app_dir, posting, master, profile_text)
+    if brief:
+        write_qualify(app_dir, brief, master, profile_text)
     result = tailor.tailor(
         posting,
         resume_tex=master,
@@ -407,6 +409,10 @@ def auto_approve(app_dir: Path, job: Job) -> bool:
     if verdict == "reject":
         tell_tab(job, "done", "The screen says reject; decide on the review page")
         return False
+    fit = qualify.load(app_dir) or {}
+    if fit.get("verdict") == "not_qualified":
+        tell_tab(job, "done", "Not qualified, by the brief; decide on the review page")
+        return False
     store.set_status(app_dir, Status.APPROVED, "approved by autopilot: clean screen, tailored")
     queue.update(job.id, status=Status.APPROVED)
     pid = runner.start_fill(job.id)
@@ -525,10 +531,25 @@ def write_brief(app_dir: Path, posting, master: str, profile_text: str) -> Optio
         store.write(app_dir, "brief_error.txt", f"{type(exc).__name__}: {exc}\n")
         print(f"  brief failed: {exc}", file=sys.stderr)
         return None
-    briefs.save(app_dir, brief)
+    store.write(app_dir, briefs.FILE, json.dumps(brief.to_dict(), indent=2) + "\n")
     gaps = sum(1 for r in brief.musts() if r.gap)
     print(f"  brief: {len(brief.requirements)} requirements, {gaps} required without evidence")
     return brief
+
+
+def write_qualify(app_dir: Path, brief, master: str, profile_text: str) -> None:
+    """Am I qualified, and why not: the verdict the review card leads with.
+    Not fatal, and it never skips the job; a not-qualified job is still
+    tailored and waits for the person instead of approving itself."""
+    try:
+        screen = json.loads((app_dir / "screen.json").read_text()) if (app_dir / "screen.json").exists() else None
+        assessment = qualify.assess(brief, master, profile_text, screen)
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        store.write(app_dir, "qualify_error.txt", f"{type(exc).__name__}: {exc}\n")
+        print(f"  qualification failed: {exc}", file=sys.stderr)
+        return
+    store.write(app_dir, qualify.FILE, json.dumps(assessment.to_dict(), indent=2) + "\n")
+    print(f"  {assessment.summary}")
 
 
 def write_cover_letter(app_dir: Path, posting, resume_tex: str, extra_instruction: str = "",

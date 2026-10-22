@@ -119,3 +119,8 @@ Asked: testing the loop on the Stripe job ("Use stripe").
 Changed: `tailor/fetch.py` (`greenhouse_job`, `_greenhouse`; the page scrape is `_fetch_page`), `tests/test_fetch.py`.
 Intent: A Greenhouse link (the embedded form `/embed/job_app?for=<board>&token=<id>`, or `/<board>/jobs/<id>`) is read from `boards-api.greenhouse.io`, which carries the full description; the page is scraped only when the API has nothing. Stripe's posting had been saved as its application form, so its documents were tailored without the job description.
 
+## 2026-10-22 — Am I qualified, and why not
+Asked: "Is it possible for the feedback mechanism to tell us why we are not qualified for this particular job?" then "Build it"; a not-qualified job still tailors and waits instead of approving itself.
+Changed: `tailor/qualify.py` (new), `tailor/prompts.py` (`qualify`), `pipeline.py` (`write_qualify`; `auto_approve` holds a not-qualified job; brief and verdict written through `archive.store`), `server/review.py` and `review/index.html` (the verdict at the top of the card, a level and reason on each row), `tests/test_qualify.py`.
+Intent: Each requirement is rated meets / partly / missing against the resume and the stories (Jev's probabilities: missing at 30%, meets at 50%), with one plain line of reason; the verdict (Qualified / Stretch / Not qualified) is counted in code from the required items and the screen's hard flags. Measured: Vercel "Not qualified: none of the 6 required items fully met; 2 missing (TypeScript, Go)"; Stripe "Qualified: meets 5 of 7, partly 2". Rounding Jev's mean first had called every Vercel item "partly", TypeScript included.
+
