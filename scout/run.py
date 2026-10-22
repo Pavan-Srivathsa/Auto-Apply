@@ -155,30 +155,51 @@ def _screen(posting: Posting, company: str) -> tuple[str, str]:
     return result.verdict, result.summary
 
 
+class FitUnavailable(RuntimeError):
+    """The fit could not be worked out now (a model or Jev call failed): try
+    again later. Unlike an unreadable posting, this says nothing about the role."""
+
+
 def _fit(posting: Posting, company: str) -> dict:
     """Am I qualified for this role, worked out in Scout (2026-10-22: "so
     that I know exactly which I'm qualified for"): the master resume the job
     would be routed to, the stories that fit it, the brief, and the
-    qualification, the same steps the pipeline takes. {} when any of it
-    fails; the role then waits for the person rather than being queued."""
+    qualification, the same steps the pipeline takes.
+
+    The free steps go first: a posting that cannot be fetched is `unknown`,
+    and one the pre-screen rules out (years, clearance, citizenship) is Not
+    qualified with no model call at all. {} when a model step fails, so the
+    caller can try again later instead of recording a verdict."""
     try:
-        from tailor import brief as briefs
-        from tailor import fetch, profile, qualify, resume_bases, tailor
+        return fit_or_raise(posting, company)
+    except FitUnavailable as exc:
+        log.warning("scout fit %s: %s", posting.url, str(exc)[:160])
+        return {}
+
+
+UNREADABLE = {"verdict": "unknown", "summary": "The posting could not be read for a fit check."}
+
+
+def fit_or_raise(posting: Posting, company: str) -> dict:
+    from tailor import brief as briefs
+    from tailor import fetch, profile, qualify, resume_bases, tailor
+    try:
         text = posting.text or fetch.fetch(posting.url).text
-        posting.text = text
+    except Exception as exc:  # noqa: BLE001 - the page itself: nothing a retry fixes soon
+        return UNREADABLE | {"why": f"{type(exc).__name__}: {str(exc)[:120]}"}
+    posting.text = text
+    blocker = level.prescreen(text)
+    if blocker:
+        # Ruled out in code, before any model is asked.
+        return {"verdict": "not_qualified", "summary": f"Not qualified: {blocker}", "base": "", "items": []}
+    try:
         choice = resume_bases.choose(fetch.Posting(url=posting.url, text=text, title=posting.title, company=company))
         base = resume_bases.get(choice.base)
         master = base.tex_path.read_text()
         stories = tailor.load_profile(stories=profile.pick(text))
-        # The pre-screen's hard lines (years, clearance, citizenship) are blockers
-        # here too: Check fit skips the screen, and Glean's "6+ years" against
-        # about three read as Qualified with the years "partly" met (2026-10-22).
-        blocker = level.prescreen(text)
-        screen = {"flags": [{"category": "requirement", "severity": "hard", "reason": blocker}]} if blocker else None
-        assessment = qualify.assess(briefs.build(text, master, stories), master, stories, screen)
-    except Exception as exc:  # noqa: BLE001 - the role still shows, without a verdict
-        log.warning("scout fit %s: %s", posting.url, str(exc)[:160])
-        return {}
+        assessment = qualify.assess(briefs.build(text, master, stories), master, stories)
+    except Exception as exc:  # noqa: BLE001 - a model or Jev step: try later
+        raise FitUnavailable(f"{type(exc).__name__}: {str(exc)[:160]}") from exc
     return {"verdict": assessment.verdict, "summary": assessment.summary, "base": base.label,
             "items": [{"text": i.text, "kind": i.kind, "level": i.level, "reason": i.reason}
                       for i in assessment.items]}

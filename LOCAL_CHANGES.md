@@ -184,3 +184,8 @@ Asked: "Why is 'check fit' an option? Let it automatically check the fit. I am n
 Changed: `scout/fitter.py` (new: a server thread that works out the fit of every listed role without one, two at a time, newest first, cached by link in `data/fit_cache.json`; an unreadable posting is `unknown`, not retried), `scout/store.py` (`set_listed_fit`, `fits_by_id`, under the lock), `scout/run.py` (a rewritten list keeps the fits in the store, not the ones the check started with), `server/app.py`, `review/index.html` (the button gone; "Checking fit…" until the verdict lands), `tests/test_fitter.py`.
 Intent: The verdict is on every Scout row before the person looks. The first pass covers the ~240 roles already listed; after that each check adds a few.
 
+## 2026-10-22 — A failed model call is not "unknown"; the free steps decide first
+Asked: (found while turning on automatic fits) the OpenRouter key hit its monthly limit ("$5.05 of $5.00 used; resets 2026-11-01"), and the checker recorded 31 of its first 48 fits as "unknown" and cached them.
+Changed: `scout/run.py` (`fit_or_raise`: an unfetchable page is `unknown`; a pre-screen hit is Not qualified with no model call; a failed model or Jev step raises `FitUnavailable` and `_fit` returns {}), `scout/fitter.py` (nothing written or cached for {}; a pass that writes nothing while rows wait backs off 15 minutes), `tests/test_fitter.py`; data: the 31 wrong "unknown" fits cleared from the cache and the lists.
+Intent: A refused API call says nothing about the role, so it is tried again later; and with ~440 listed roles on a $5 key, a role the code can rule out costs nothing.
+

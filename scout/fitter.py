@@ -28,7 +28,7 @@ ENV = "AUTOPILOT_FIT"
 WORKERS = 2            # fits at a time: each is a fetch, three cheap model calls and Jev
 BATCH = 6              # rows taken per pass, so a check's new rows are not stuck behind 200 old ones
 IDLE = 60.0            # seconds to wait when every listed role has a fit
-UNKNOWN = {"verdict": "unknown", "summary": "The posting could not be read for a fit check."}
+BACKOFF = 900.0        # ... and when a whole pass failed: the model key is out of credit or down
 
 _thread: Optional[threading.Thread] = None
 _stop = threading.Event()
@@ -75,12 +75,16 @@ def pending() -> list[tuple[str, str, dict]]:
     return rows
 
 
-def fit_row(watch_id: str, company: str, row: dict) -> dict:
+def fit_row(watch_id: str, company: str, row: dict) -> Optional[dict]:
+    """The row's fit, written on it, or None when it could not be worked out
+    now (nothing is written or cached, so the next pass tries again)."""
     from scout import run
     fit = cached(row["url"])
     if not fit:
         fit = run._fit(Posting(id=row["id"], title=row["title"], url=row["url"], location=row.get("location", "")),
-                       company) or dict(UNKNOWN)
+                       company)
+        if not fit:
+            return None
         remember(row["url"], fit)
     store.set_listed_fit(watch_id, row["id"], fit)
     return fit
@@ -112,7 +116,10 @@ def _loop() -> None:
             log.exception("fit pass failed")
             written = 0
         if not written:
-            _stop.wait(IDLE)
+            # Nothing written: either every row has a fit, or every try failed
+            # (an exhausted model key). Waiting longer in the second case keeps
+            # it from hammering a refusing API.
+            _stop.wait(IDLE if not pending() else BACKOFF)
 
 
 def start() -> bool:

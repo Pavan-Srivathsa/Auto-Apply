@@ -39,15 +39,25 @@ def test_every_listed_role_gets_a_fit_newest_first_and_each_link_once(monkeypatc
     assert fitter.one_pass(workers=1) == 1 and len(asked) == 3                 # the same link: from the cache
 
 
-def test_an_unreadable_posting_is_unknown_and_not_tried_again(monkeypatch):
+def test_a_failed_model_step_writes_nothing_and_is_tried_again(monkeypatch):
     held(monkeypatch, rows(1))
     calls = []
     monkeypatch.setattr(run, "_fit", lambda posting, company: calls.append(1) or {})
-    fitter.one_pass(workers=1)
+    assert fitter.one_pass(workers=1) == 0
     [watch] = store.watches()
-    assert watch.listed[0]["fit"]["verdict"] == "unknown" and fitter.pending() == []
+    assert "fit" not in watch.listed[0] and fitter.cached("https://x/1") is None
     fitter.one_pass(workers=1)
-    assert len(calls) == 1
+    assert len(calls) == 2                                                     # tried again, not marked unknown
+
+
+def test_the_free_steps_decide_before_any_model(monkeypatch):
+    from tailor import fetch, profile
+    monkeypatch.setattr(profile, "pick", lambda text: pytest.fail("no model call for a ruled-out role"))
+    monkeypatch.setattr(fetch, "fetch", lambda url: (_ for _ in ()).throw(RuntimeError("502 Bad Gateway")))
+    assert run.fit_or_raise(rows(1)[0], "Intel")["verdict"] == "unknown"       # unreadable page
+    senior = rows(2)[0]
+    senior.text = "You bring 7+ years of experience building distributed systems."
+    assert run.fit_or_raise(senior, "Acme")["summary"] == "Not qualified: asks for 7+ years of experience"
 
 
 def test_a_fit_written_during_a_check_survives_the_lists_rewrite(monkeypatch):
