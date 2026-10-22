@@ -171,7 +171,12 @@ def _fit(posting: Posting, company: str) -> dict:
         base = resume_bases.get(choice.base)
         master = base.tex_path.read_text()
         stories = tailor.load_profile(stories=profile.pick(text))
-        assessment = qualify.assess(briefs.build(text, master, stories), master, stories)
+        # The pre-screen's hard lines (years, clearance, citizenship) are blockers
+        # here too: Check fit skips the screen, and Glean's "6+ years" against
+        # about three read as Qualified with the years "partly" met (2026-10-22).
+        blocker = level.prescreen(text)
+        screen = {"flags": [{"category": "requirement", "severity": "hard", "reason": blocker}]} if blocker else None
+        assessment = qualify.assess(briefs.build(text, master, stories), master, stories, screen)
     except Exception as exc:  # noqa: BLE001 - the role still shows, without a verdict
         log.warning("scout fit %s: %s", posting.url, str(exc)[:160])
         return {}

@@ -554,7 +554,7 @@ def test_the_fit_step_runs_the_pipelines_own_steps_against_the_routed_resume(mon
     monkeypatch.setattr(tailor, "load_profile", lambda stories=None: "stories: " + ",".join(stories))
     seen = {}
     monkeypatch.setattr(briefs, "build", lambda text, master, stories: seen.update(text=text, master=master) or "BRIEF")
-    monkeypatch.setattr(qualify, "assess", lambda brief, master, stories: qualify.Assessment(
+    monkeypatch.setattr(qualify, "assess", lambda brief, master, stories, screen=None: qualify.Assessment(
         verdict="stretch", summary="Stretch: 1 of 4 missing (Go)",
         items=[qualify.Item(text="Go", kind="must", level="missing", reason="No Go.")]))
     fit = run_fit(posting(1, "Software Engineer", text="We need Go and Python."), "Acme")
@@ -562,3 +562,19 @@ def test_the_fit_step_runs_the_pipelines_own_steps_against_the_routed_resume(mon
     assert seen == {"text": "We need Go and Python.", "master": "\\begin{document}resume\\end{document}"}
     monkeypatch.setattr(briefs, "build", lambda *a: (_ for _ in ()).throw(RuntimeError("model down")))
     assert run_fit(posting(2, "Software Engineer", text="x"), "Acme") == {}       # fails quietly: the role waits
+
+
+def test_the_pre_screens_hard_lines_make_a_fit_not_qualified(monkeypatch, tmp_path):
+    from tailor import brief as briefs, profile, qualify, resume_bases, tailor
+    tex = tmp_path / "resume.tex"
+    tex.write_text("x")
+    monkeypatch.setattr(resume_bases, "choose", lambda posting: type("C", (), {"base": "ml"})())
+    monkeypatch.setattr(resume_bases, "get", lambda base_id: type("B", (), {"tex_path": tex, "label": "ML"})())
+    monkeypatch.setattr(profile, "pick", lambda text: [])
+    monkeypatch.setattr(tailor, "load_profile", lambda stories=None: "")
+    monkeypatch.setattr(briefs, "build", lambda *a: briefs.Brief(requirements=[briefs.Requirement(text="ML", kind="must")]))
+    monkeypatch.setattr(qualify, "levels_jev", lambda *a: [("meets", 0.9)])
+    monkeypatch.setattr(qualify, "reasons", lambda *a, **k: {})
+    monkeypatch.setattr(qualify.jev, "configured", lambda: True)
+    fit = REAL_FIT(posting(1, "ML Engineer", text="You have 6+ years of industry experience in ML."), "Glean")
+    assert fit["verdict"] == "not_qualified" and "6+ years" in fit["summary"]
