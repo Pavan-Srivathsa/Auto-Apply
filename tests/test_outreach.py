@@ -277,3 +277,18 @@ def test_leadership_is_an_option_and_never_the_default(tmp_path, monkeypatch):
     added = client.post(f"/review/{job.id}/outreach/contact", json={"role": "leadership", "name": "Dana", "title": "CTO"})
     assert added.status_code == 200
     assert "Never ask an executive for a referral" in writer.system_prompt()
+
+
+def test_a_refused_model_call_reads_as_why_not_http_500(tmp_path, monkeypatch):
+    from tailor import llm
+    job, folder = application(tmp_path)
+    client = TestClient(app, raise_server_exceptions=False)
+    rita = client.post(f"/review/{job.id}/outreach/contact", json={
+        "role": "recruiter", "name": "Rita", "email": "rita@acme.com"}).json()["contacts"][0]
+
+    def refused(*args, **kwargs):
+        raise llm.LLMError('OpenRouter returned 403: {"error":{"message":"Key limit exceeded (monthly limit)."}}')
+
+    monkeypatch.setattr(writer, "draft", refused)
+    res = client.post(f"/review/{job.id}/outreach/drafts", json={"contact_ids": [rita["id"]]})
+    assert res.status_code == 502 and "spending limit" in res.json()["detail"]

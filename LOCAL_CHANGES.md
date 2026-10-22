@@ -189,3 +189,8 @@ Asked: (found while turning on automatic fits) the OpenRouter key hit its monthl
 Changed: `scout/run.py` (`fit_or_raise`: an unfetchable page is `unknown`; a pre-screen hit is Not qualified with no model call; a failed model or Jev step raises `FitUnavailable` and `_fit` returns {}), `scout/fitter.py` (nothing written or cached for {}; a pass that writes nothing while rows wait backs off 15 minutes), `tests/test_fitter.py`; data: the 31 wrong "unknown" fits cleared from the cache and the lists.
 Intent: A refused API call says nothing about the role, so it is tried again later; and with ~440 listed roles on a $5 key, a role the code can rule out costs nothing.
 
+## 2026-10-22 — A refused model call says why, not "HTTP 500"
+Asked: Write emails answered "HTTP 500".
+Changed: `server/app.py` (an `LLMError` anywhere becomes a 502 with the reason: the key's spending limit, a refused key, or the error's first line), `tests/test_outreach.py`.
+Intent: The OpenRouter key had hit its monthly limit and the error escaped as a crash. The person has since put a new key in the data folder's `.env` (limit $50); the server is restarted to read it.
+

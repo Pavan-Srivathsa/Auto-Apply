@@ -37,6 +37,22 @@ REVIEW_DIR = ROOT / "review"
 
 app = FastAPI(title="job-autopilot", version="0.1.0")
 
+
+@app.exception_handler(llm.LLMError)
+async def _model_refused(request, exc):
+    """A refused or failed model call is the model service's answer, not a
+    crash: the page shows why ("key limit exceeded") instead of "HTTP 500"
+    (2026-10-22, Write emails on an exhausted OpenRouter key)."""
+    from fastapi.responses import JSONResponse
+    text = str(exc)
+    if "Key limit exceeded" in text or "limit_remaining" in text:
+        reason = "the OpenRouter key has reached its spending limit; raise it at openrouter.ai/settings/keys"
+    elif "401" in text:
+        reason = "OpenRouter did not accept the key"
+    else:
+        reason = text[:200]
+    return JSONResponse(status_code=502, content={"detail": f"The writing model refused: {reason}."})
+
 # The extension posts from whatever origin the job page is on, so the origin
 # cannot be pinned. Safe because the server binds to 127.0.0.1 only.
 app.add_middleware(
