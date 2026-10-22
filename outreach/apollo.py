@@ -31,7 +31,15 @@ TITLES = {
         "machine learning manager", "data science manager",
         "director of engineering", "director of data science",
     ],
+    # Founders, the C-suite and partners: an option the person ticks, never the
+    # default, since a CEO is not a recruiter (2026-10-22).
+    "leadership": [
+        "founder", "co-founder", "ceo", "chief executive officer", "cto", "chief technology officer",
+        "cfo", "chief financial officer", "coo", "chief operating officer", "president",
+        "vp of engineering", "head of engineering", "partner", "managing partner", "general partner",
+    ],
 }
+DEFAULT_ROLES = ("recruiter", "hiring_manager")
 
 
 class ApolloError(RuntimeError):
@@ -189,9 +197,9 @@ def enrich(contact: Contact, client: Optional[httpx.Client] = None) -> Contact:
     return enriched
 
 
-def discover(company: str, per_role: int = 3,
-             client: Optional[httpx.Client] = None) -> list[Contact]:
+def discover(company: str, per_role: int = 3, client: Optional[httpx.Client] = None,
+             roles: tuple[str, ...] = DEFAULT_ROLES) -> list[Contact]:
     contacts = []
-    for role in ("recruiter", "hiring_manager"):
+    for role in roles:
         contacts.extend(search(company, role, per_role, client=client))
     return contacts

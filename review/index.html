@@ -1070,10 +1070,13 @@ function outreachSetup(state) {
     <div class="outreach-setup">
       ${key}${gmail}
       <div class="wide actions">
-        <button class="act primary" id="outreachDiscover" ${state.apollo_configured ? "" : "disabled"}>Find recruiter + manager</button>
+        <label><input type="checkbox" class="outreach-who" value="recruiter" checked> Recruiters</label>
+        <label><input type="checkbox" class="outreach-who" value="hiring_manager" checked> Hiring managers</label>
+        <label title="Founders, CEO, CTO, CFO, COO, VP or head of engineering, partners"><input type="checkbox" class="outreach-who" value="leadership"> Leadership</label>
+        <button class="act primary" id="outreachDiscover" ${state.apollo_configured ? "" : "disabled"}>Find people</button>
         <span class="hint">${escape(state.lookup_note || "Apollo search spends no email credit; enrichment is requested separately.")}</span>
       </div>
-      <select id="outreachRole"><option value="recruiter">Recruiter</option><option value="hiring_manager">Hiring manager</option></select>
+      <select id="outreachRole"><option value="recruiter">Recruiter</option><option value="hiring_manager">Hiring manager</option><option value="leadership">Leadership (founder, CEO, CTO, CFO, partner)</option></select>
       <textarea id="outreachName" rows="1" placeholder="contact name"></textarea>
       <textarea id="outreachTitle" rows="1" placeholder="title (optional)"></textarea>
       <textarea id="outreachEmail" rows="1" placeholder="email (optional)"></textarea>
@@ -1175,7 +1178,11 @@ function wireOutreach(id, state) {
     }
     run("/gmail", { user, app_password });
   };
-  if ($("outreachDiscover")) $("outreachDiscover").onclick = () => run("/discover", { per_role: 3 });
+  if ($("outreachDiscover")) $("outreachDiscover").onclick = () => {
+    const roles = [...document.querySelectorAll(".outreach-who:checked")].map((box) => box.value);
+    if (!roles.length) { alert("Tick at least one group of people to find."); return; }
+    run("/discover", { per_role: 3, roles });
+  };
   if ($("outreachAddContact")) $("outreachAddContact").onclick = () => run("/contact", {
     role: $("outreachRole").value,
     name: $("outreachName").value.trim(),

@@ -20,7 +20,7 @@ def stable_id(*parts: str) -> str:
 
 class Contact(BaseModel):
     id: str
-    role: Literal["recruiter", "hiring_manager"]
+    role: Literal["recruiter", "hiring_manager", "leadership"]
     name: str
     title: str = ""
     company: str = ""

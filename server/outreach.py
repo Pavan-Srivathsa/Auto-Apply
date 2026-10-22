@@ -32,6 +32,7 @@ router = APIRouter(prefix="/review", tags=["outreach"])
 
 class DiscoverRequest(BaseModel):
     per_role: int = 3
+    roles: list[str] = ["recruiter", "hiring_manager"]   # "leadership" only when the person ticks it
 
 
 class ManualContact(BaseModel):
@@ -163,7 +164,8 @@ def discover(job_id: str, request: DiscoverRequest) -> dict:
     if not job.company.strip():
         raise HTTPException(409, "the job has no company name; add a contact manually")
     try:
-        contacts = apollo.discover(job.company, min(max(request.per_role, 1), 5))
+        roles = tuple(dict.fromkeys(r for r in request.roles if r in apollo.TITLES)) or apollo.DEFAULT_ROLES
+        contacts = apollo.discover(job.company, min(max(request.per_role, 1), 5), roles=roles)
     except apollo.ApolloError as exc:
         raise HTTPException(502, str(exc)) from None
     store.add_contacts(
@@ -176,8 +178,8 @@ def discover(job_id: str, request: DiscoverRequest) -> dict:
 @router.post("/{job_id}/outreach/contact")
 def add_contact(job_id: str, request: ManualContact) -> dict:
     job, _ = _job_and_dir(job_id)
-    if request.role not in ("recruiter", "hiring_manager"):
-        raise HTTPException(400, "role must be recruiter or hiring_manager")
+    if request.role not in apollo.TITLES:
+        raise HTTPException(400, "role must be recruiter, hiring_manager or leadership")
     if not request.name.strip():
         raise HTTPException(400, "contact name is required")
     contact = Contact.create(

@@ -260,3 +260,20 @@ def test_selected_contacts_write_one_carousel_and_never_send(tmp_path, monkeypat
     assert client.post(f"/review/{job.id}/outreach/drafts", json={
         "contact_ids": [],
     }).status_code == 400
+
+
+def test_leadership_is_an_option_and_never_the_default(tmp_path, monkeypatch):
+    job, folder = application(tmp_path)
+    monkeypatch.setenv(apollo.API_KEY, "key")
+    asked = []
+    monkeypatch.setattr(apollo, "search", lambda company, role, limit=4, client=None: asked.append(role) or [
+        Contact.create(role, f"{role} person", title="CEO" if role == "leadership" else "x", company="Acme")])
+    client = TestClient(app)
+    client.post(f"/review/{job.id}/outreach/discover", json={"per_role": 2})
+    assert asked == ["recruiter", "hiring_manager"]
+    asked.clear()
+    state = client.post(f"/review/{job.id}/outreach/discover", json={"roles": ["leadership", "nonsense"]}).json()
+    assert asked == ["leadership"] and any(c["role"] == "leadership" for c in state["contacts"])
+    added = client.post(f"/review/{job.id}/outreach/contact", json={"role": "leadership", "name": "Dana", "title": "CTO"})
+    assert added.status_code == 200
+    assert "Never ask an executive for a referral" in writer.system_prompt()
