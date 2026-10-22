@@ -134,3 +134,8 @@ Asked: "dont edit the resume. ill work on that and send it to you."
 Changed: data only: `data/resume_bases.json` restored from its backup, `base/resumes/ai-engineering/` removed (kept in the session scratchpad for reference). Routing is back to the three masters as they were, "AI Engineer" on the ML Resume.
 Intent: The person writes their own master resumes; the new one is registered as they send it.
 
+## 2026-10-22 — Followed boards wait for a click; a skip list for companies
+Asked: the 24 boards followed from Lenny's Jobs should list only ("I add"), and defense and space boards (SpaceX, SpaceX SI, Anduril, Varda, Stoke Space) removed and not followed again.
+Changed: `scout/run.py` (`hold` on followed watches stops auto-queueing; `skipped` and the Lenny's watch's `args.skip` list), `tests/test_lennys.py`; data: the existing followed watches get `hold`, the five are removed, and the skip list is set on the person's Lenny's watch.
+Intent: SpaceX and Anduril list ~2,500 roles each and a few hundred pass the title filter, many behind clearance or export control; auto-queueing them would have filled forms nobody chose. Roles from followed boards now wait in the Scout tab with "Add to autopilot". The skip list is the person's data, not names in the repository.
+

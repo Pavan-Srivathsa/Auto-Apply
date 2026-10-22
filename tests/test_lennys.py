@@ -11,7 +11,7 @@ from archive import store as archive
 from outreach import apollo, drafting
 from outreach import store as outreach_store
 from outreach.models import Contact, Draft
-from scout import Watch, detect, lennys, providers, run, store
+from scout import Posting, Watch, detect, lennys, providers, run, store
 from server import outreach as outreach_api
 from server import postings, queue, runner, settings
 from server.models import Job, Status
@@ -188,3 +188,22 @@ def test_a_board_that_does_not_read_is_not_followed(monkeypatch):
     watch, _ = store.add_watch(Watch(url=lennys.URL, company="Lenny's Jobs", provider="lennys", args={}))
     run.check(watch)
     assert [w.provider for w in store.watches()] == ["lennys"]
+
+
+def test_followed_boards_wait_for_the_person_and_skip_what_they_said(monkeypatch):
+    watch, _ = store.add_watch(Watch(url=lennys.URL, company="Lenny's Jobs", provider="lennys",
+                                     args={"follow": True, "skip": ["beta"]}))
+    rows = lennys.to_postings(ROWS)
+    monkeypatch.setattr(providers, "fetch", lambda w, http=None: rows if w.provider == "lennys" else rows[:1])
+    run.check(watch)
+    followed = [w for w in store.watches() if w.args.get("via") == "lennys"]
+    assert [w.company for w in followed] == ["Acme"]                       # Beta is on the skip list
+    assert followed[0].args["hold"] is True
+    acme = followed[0]
+    run.check(acme)                                                        # first look: records only
+    monkeypatch.setattr(providers, "fetch", lambda w, http=None: rows[:1] + [
+        Posting(id="https://jobs.ashbyhq.com/acme/2", title="Software Engineer II", url="https://jobs.ashbyhq.com/acme/2",
+                text="desc", company="Acme")])
+    result = run.check(store.get_watch(acme.id))
+    assert result["new"] == 1 and result["queued"] == 0                   # listed, waiting for the click
+    assert queue.all_jobs() == []
