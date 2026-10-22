@@ -219,3 +219,16 @@ def test_a_row_without_location_or_company_reads_them_off_its_link():
     assert level.matching(watch, [row]) == []                                  # India, dropped before any screen
     assert lennys.company_from_url("https://jobs.ashbyhq.com/traba/1") == "Traba"
     assert level.place_in_url("https://jobs.ashbyhq.com/traba/1") == ""
+
+
+def test_a_skipped_company_is_never_listed_or_queued_from_lennys_itself(monkeypatch):
+    watch, _ = store.add_watch(Watch(url=lennys.URL, company="Lenny's Jobs", provider="lennys",
+                                     args={"follow": False, "skip": ["beta"]}))
+    monkeypatch.setattr(providers, "fetch", lambda w, http=None: [])
+    seed = lennys.to_postings(ROWS)[1:]                                       # Acme known
+    monkeypatch.setattr(providers, "fetch", lambda w, http=None: seed)
+    run.check(watch)
+    monkeypatch.setattr(providers, "fetch", lambda w, http=None: lennys.to_postings(ROWS))
+    result = run.check(store.get_watch(watch.id))
+    assert result["new"] == 0 and result["matching"] == 1                     # Beta skipped, Acme already seen
+    assert [r["title"] for r in store.get_watch(watch.id).listed] == ["Software Engineer, New Grad"]

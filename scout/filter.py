@@ -27,6 +27,7 @@ def at_level(title: str, positive: list[str], negative: list[str]) -> bool:
 
 def matching(watch: Watch, postings: list[Posting]) -> list[Posting]:
     return [p for p in postings if at_level(p.title, watch.positive, watch.negative)
+            and not CLEARANCE_TITLE.search(p.title or "")
             and not (watch.us_only and outside_us(p.location or place_in_url(p.url)))]
 
 
@@ -148,8 +149,15 @@ _YEARS = re.compile(
     r"(?:\+\s*)?years?(?:'|’)?\s+(?:of\s+)?(?:\w+\s+){0,4}?experience", re.I)
 _CLEARANCE = re.compile(
     r"(?:active|current|hold(?:s|ing)?\s+an?|must\s+(?:have|hold|possess|obtain)\s+an?|requires?\s+an?|"
-    r"eligible\s+(?:for|to\s+obtain)\s+an?)\s+(?:(?:top\s+secret|secret|ts/?sci|dod|government|security|public\s+trust)\s+)+clearance",
+    r"eligible\s+(?:for|to\s+obtain)\s+an?|(?:able|ability)\s+to\s+obtain(?:\s+and\s+maintain)?\s+an?|"
+    r"obtain\s+and\s+maintain\s+an?)\s+(?:(?:active\s+)?(?:top\s+secret|secret|ts/?sci|dod|government|security|"
+    r"public\s+trust)\s+)+clearance|\bts/sci\b|\bpolygraph\b",
     re.I)
+# The same requirement, said in the title: "AI Engineer, Special Programs - Top Secret
+# Clearance", "Software Engineer, Connected Warfare (Active Clearance)". Dropped with the
+# title filter, before a description is fetched or a model is asked (2026-10-22).
+CLEARANCE_TITLE = re.compile(
+    r"clearance|ts/?sci|top\s+secret|\bsecret\b|classified|special\s+programs|polygraph", re.I)
 _CITIZEN = re.compile(
     r"(?:u\.?s\.?|united\s+states)\s+citizen(?:ship)?\s+(?:is\s+)?(?:required|is\s+a\s+requirement|only)|"
     r"must\s+be\s+an?\s+(?:u\.?s\.?|united\s+states)\s+citizen|(?:u\.?s\.?|united\s+states)\s+citizens\s+only",

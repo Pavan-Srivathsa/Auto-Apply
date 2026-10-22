@@ -149,3 +149,8 @@ Asked: "There are already jobs in Lenny's dashboard that are Bangalore-related. 
 Changed: `scout/filter.py` (`place_in_url`: a Workday `/job/<place>/` stands in for an empty location), `scout/lennys.py` (`company_from_url` for a row with no company link), `tests/test_lennys.py`; data: the Bengaluru job it queued (a23d) deleted, the Lenny's watch reset and read again.
 Intent: Accenture's rows on Lenny's carry no location text and no company link, so nine India roles read as "unknown place" and one was queued and tailored under the name "Lenny's Jobs" before it was stopped.
 
+## 2026-10-22 — Clearance roles out everywhere; SpaceX kept
+Asked: "Don't remove the ones like SpaceX ... we spoke about ... ones that require security clearance", then: keep SpaceX, skip Anduril, Varda and Stoke Space entirely.
+Changed: `scout/filter.py` (`CLEARANCE_TITLE` drops a role whose title asks for a clearance; `_CLEARANCE` also reads "ability to obtain (and maintain) a ... clearance", TS/SCI and polygraph), `scout/run.py` (the Lenny's skip list applies to Lenny's own rows too), tests; data: the skip list is Anduril, Varda, Stoke Space, and SpaceX and SpaceX SI are followed again (held).
+Intent: The line is the clearance, not the company: SpaceX has many roles without one. A skipped company is never followed, listed, screened or queued.
+

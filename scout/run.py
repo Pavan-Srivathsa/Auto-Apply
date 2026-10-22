@@ -192,6 +192,10 @@ def _check(watch: Watch, screen: bool) -> dict:
         except Exception:  # noqa: BLE001 - the extra never fails the check
             log.exception("scout follow")
     matching = level.matching(watch, rows)
+    if watch.provider == "lennys" and watch.args.get("skip"):
+        # A company the person skips is skipped on Lenny's own list too, not
+        # only when following boards: it is never listed, screened or queued.
+        matching = [p for p in matching if not skipped(p.company, {}, watch.args["skip"])]
     seen = set(watch.seen_ids)
     first_run = watch.last_ok is None and not seen
     fresh = [p for p in matching if p.id not in seen]
