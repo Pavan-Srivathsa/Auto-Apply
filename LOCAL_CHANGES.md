@@ -119,3 +119,14 @@ Asked: "let's also have top partners, CEO, CFO, CTOs ... as well as an option, n
 Changed: `outreach/apollo.py` (`leadership` titles: founders, CEO/CTO/CFO/COO, president, VP or head of engineering, partners; `discover(roles=)`), `outreach/models.py`, `outreach/store.py`, `server/outreach.py` (`DiscoverRequest.roles`), `review/index.html` (three tick boxes on Find people; Leadership in Add contact), `tailor/outreach_rules.md` (writing to leadership), `tests/test_outreach.py`.
 Intent: Leadership is ticked by the person, never searched by default, and the automatic Lenny's drafts still go to a recruiter and a hiring manager. An email to a founder or executive leads with the company's problem and one proof point, is shorter, and only asks to be pointed to the right person: never a referral or their own time.
 
+
+## 2026-10-22 — No visa sponsorship is checked first, and the Scout never applies
+
+Intent: "Check this first always. Don't even apply through Scout if this is true
+for the job." `filter.prescreen` now tests for a refusal to sponsor (YC's "US
+citizen/visa only", "unable to sponsor", "without current or future
+sponsorship", "US citizens or permanent residents only", "not open to OPT/CPT")
+before years, clearance or citizenship, so the Scout's screen is a reject with
+no model call. YC rows with that visa line are never listed, and `queue_hit`
+refuses such a hit, including the hand "Add to autopilot" (which now reads the
+description first).

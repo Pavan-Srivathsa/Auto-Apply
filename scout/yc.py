@@ -17,7 +17,7 @@ import re
 import httpx
 
 from scout import Posting, Watch
-from scout.filter import YEARS_MIN
+from scout.filter import YEARS_MIN, needs_no_sponsor
 
 BASE = "https://www.ycombinator.com"
 ROLES = ["software-engineer"]
@@ -41,6 +41,8 @@ def parse(page: str) -> list[Posting]:
         years = YEARS.search(str(job.get("minExperience") or ""))
         if years and int(years.group(1)) >= YEARS_MIN:
             continue                        # "6+ years" is not entry level, and costs a screen
+        if needs_no_sponsor(str(job.get("visa") or "")):
+            continue                        # "US citizen/visa only": no sponsorship, never listed
         url = BASE + str(job.get("url") or "")
         # No `text`: the screen fetches the public job page and reads all of it.
         rows.append(Posting(id=str(job.get("id") or url), title=str(job.get("title") or ""), url=url,

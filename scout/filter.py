@@ -158,20 +158,50 @@ _CLEARANCE = re.compile(
 # title filter, before a description is fetched or a model is asked (2026-10-22).
 CLEARANCE_TITLE = re.compile(
     r"clearance|ts/?sci|top\s+secret|\bsecret\b|classified|special\s+programs|polygraph", re.I)
+NO_SPONSOR = "no visa sponsorship"
 _CITIZEN = re.compile(
     r"(?:u\.?s\.?|united\s+states)\s+citizen(?:ship)?\s+(?:is\s+)?(?:required|is\s+a\s+requirement|only)|"
     r"must\s+be\s+an?\s+(?:u\.?s\.?|united\s+states)\s+citizen|(?:u\.?s\.?|united\s+states)\s+citizens\s+only",
     re.I)
 
+# A posting that will not sponsor a visa, now or later. The person is on F-1 and
+# OPT and will need sponsorship, so this is checked before anything else and the
+# Scout never queues the role (2026-10-22, "check this first always"). YC's own
+# line "US citizen/visa only" is the same thing. "Will you now or in the future
+# require sponsorship?" is a form question and does not match.
+_NO_SPONSOR = re.compile(
+    r"u\.?s\.?\s+citizen\s*/\s*visa\s+only|"
+    r"(?:will|do(?:es)?|can|are|is)\s*(?:not|n't)\s+(?:be\s+)?(?:able\s+to\s+)?(?:offer(?:ing)?\s+|provide\s+)?"
+    r"(?:visa\s+|immigration\s+|employment\s+)?sponsor|"
+    r"(?:unable|not\s+able)\s+to\s+(?:offer\s+|provide\s+)?(?:visa\s+|immigration\s+)?sponsor|"
+    r"cannot\s+(?:offer\s+|provide\s+)?(?:visa\s+|immigration\s+)?sponsor|"
+    r"\bno\s+(?:visa\s+|immigration\s+|h-?1b\s+)?sponsorship|"
+    r"sponsorship\s+(?:is\s+)?(?:not\s+(?:available|offered|provided|possible)|unavailable)|"
+    r"not\s+eligible\s+for\s+(?:visa\s+|immigration\s+)?sponsorship|"
+    r"without\s+(?:the\s+)?(?:need\s+for\s+)?(?:current\s+or\s+future\s+|present\s+or\s+future\s+|any\s+)?"
+    r"(?:visa\s+|employer\s+|immigration\s+)?sponsorship|"
+    r"(?:u\.?s\.?|united\s+states)\s+citizens?\s+(?:or|and|/)\s+(?:lawful\s+)?(?:permanent\s+residents?|green\s+card\s+holders?)"
+    r"(?:\s+only)?|green\s+card\s+holders?\s+only|"
+    r"not\s+(?:open|eligible)\s+to\s+(?:candidates\s+on\s+)?(?:opt|cpt|f-?1)|"
+    r"(?:unable|not\s+able)\s+to\s+(?:accept|consider)\s+(?:candidates\s+on\s+)?(?:opt|cpt|f-?1)",
+    re.I)
+
+
+def needs_no_sponsor(text: str) -> bool:
+    """True when the posting refuses visa sponsorship."""
+    return bool(_NO_SPONSOR.search(" ".join((text or "").split())))
+
 
 def prescreen(text: str) -> str | None:
-    """Why the posting is out before a model reads it, else None. Years
-    of experience at `YEARS_MIN` or more, a security clearance, or
-    citizenship as a requirement. "0-2 years" and "2+ years" pass: the
+    """Why the posting is out before a model reads it, else None. No visa
+    sponsorship (checked first), years of experience at `YEARS_MIN` or more,
+    a security clearance, or citizenship as a requirement. "0-2 years" and "2+ years" pass: the
     first number of a range is what the role really asks."""
     text = text or ""
     if not text.strip():
         return None
+    if needs_no_sponsor(text):
+        return NO_SPONSOR
     years = [int(m.group(1)) for m in _YEARS.finditer(text)]
     years = [y for y in years if y <= 30]      # "2024 years" is a date that slipped in
     if years and min(years) >= YEARS_MIN:
