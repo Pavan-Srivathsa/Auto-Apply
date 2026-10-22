@@ -46,6 +46,7 @@ ENV = "AUTOPILOT_SCOUT"
 TICK = 60.0                 # seconds between looks at what is due
 SCREEN_LIMIT = 25           # new roles screened per check; the rest wait for the next round
 QUEUE_VERDICTS = ("ok", "caution")   # what a non-notify watch sends into autopilot; reject and "" wait for the person
+FIT_QUEUES = ("qualified",)          # ... and only when the person is qualified: stretch and not qualified wait
 LISTED_KEEP = 100           # roles at the level kept on the watch row for the page, per check
 TEXT_KEEP = 6000            # characters of description kept on the hit
 
@@ -87,7 +88,14 @@ def next_check(watch: Watch) -> Optional[str]:
 
 def listed_row(p: Posting) -> dict:
     """What the page shows for a role at the level: no description."""
-    return {"id": p.id, "title": p.title, "url": p.url, "location": p.location, "posted": p.posted}
+    return {"id": p.id, "title": p.title, "url": p.url, "location": p.location, "posted": p.posted,
+            "company": p.company}
+
+
+def _keep_fit(row: dict, watch: Watch) -> dict:
+    """A fit the person already asked for survives the list being rewritten."""
+    before = next((r for r in watch.listed if r["id"] == row["id"] and r.get("fit")), None)
+    return row | {"fit": before["fit"]} if before else row
 
 
 def add_listed(watch_id: str, posting_id: str) -> dict:
@@ -101,8 +109,9 @@ def add_listed(watch_id: str, posting_id: str) -> dict:
     if row is None:
         return {"ok": False, "reason": "not on the list any more; check the page again"}
     posting = Posting(id=row["id"], title=row["title"], url=row["url"], location=row.get("location", ""),
-                      posted=row.get("posted", ""))
-    hit = Hit(watch_id=watch.id, company=watch.company, posting=posting.to_dict())
+                      posted=row.get("posted", ""), company=row.get("company", ""))
+    hit = Hit(watch_id=watch.id, company=row.get("company") or watch.company, posting=posting.to_dict(),
+              fit=row.get("fit") or {})
     store.add_hits([hit])
     store.update_watch(watch.id, seen_ids=sorted(set(watch.seen_ids) | {posting.id}))
     return queue_hit(hit.id)
@@ -136,6 +145,7 @@ def _screen(posting: Posting, company: str) -> tuple[str, str]:
             text = fetch.fetch(posting.url).text
         except Exception as exc:  # noqa: BLE001
             return "", f"no description: {str(exc)[:120]}"
+    posting.text = text            # read once: the fit check below uses the same text
     reason = level.prescreen(text)
     if reason:
         return "reject", reason
@@ -144,6 +154,50 @@ def _screen(posting: Posting, company: str) -> tuple[str, str]:
     except Exception as exc:  # noqa: BLE001
         return "", f"screen failed: {str(exc)[:120]}"
     return result.verdict, result.summary
+
+
+def _fit(posting: Posting, company: str) -> dict:
+    """Am I qualified for this role, worked out in Scout (2026-10-22: "so
+    that I know exactly which I'm qualified for"): the master resume the job
+    would be routed to, the stories that fit it, the brief, and the
+    qualification, the same steps the pipeline takes. {} when any of it
+    fails; the role then waits for the person rather than being queued."""
+    try:
+        from tailor import brief as briefs
+        from tailor import fetch, profile, qualify, resume_bases, tailor
+        text = posting.text or fetch.fetch(posting.url).text
+        posting.text = text
+        choice = resume_bases.choose(fetch.Posting(url=posting.url, text=text, title=posting.title, company=company))
+        base = resume_bases.get(choice.base)
+        master = base.tex_path.read_text()
+        stories = tailor.load_profile(stories=profile.pick(text))
+        assessment = qualify.assess(briefs.build(text, master, stories), master, stories)
+    except Exception as exc:  # noqa: BLE001 - the role still shows, without a verdict
+        log.warning("scout fit %s: %s", posting.url, str(exc)[:160])
+        return {}
+    return {"verdict": assessment.verdict, "summary": assessment.summary, "base": base.label,
+            "items": [{"text": i.text, "kind": i.kind, "level": i.level, "reason": i.reason}
+                      for i in assessment.items]}
+
+
+def fit_listed(watch_id: str, posting_id: str) -> dict:
+    """The fit of one role on a watch's own list, on the person's request,
+    kept on the row so it shows next time and travels with "Add"."""
+    watch = store.get_watch(watch_id)
+    if watch is None:
+        return {"ok": False, "reason": "no such watch"}
+    rows = list(watch.listed)
+    index = next((i for i, r in enumerate(rows) if r["id"] == posting_id), None)
+    if index is None:
+        return {"ok": False, "reason": "not on the list any more; check the page again"}
+    row = rows[index]
+    company = row.get("company") or watch.company
+    fit = _fit(Posting(id=row["id"], title=row["title"], url=row["url"], location=row.get("location", "")), company)
+    if not fit:
+        return {"ok": False, "reason": "the fit could not be worked out; the posting may not be readable"}
+    rows[index] = row | {"fit": fit}
+    store.update_watch(watch.id, listed=rows)
+    return {"ok": True, "fit": fit}
 
 
 def check(watch: Watch, screen: bool = True) -> dict:
@@ -205,9 +259,10 @@ def _check(watch: Watch, screen: bool) -> dict:
         for posting in fresh[:SCREEN_LIMIT]:
             company = posting.company or watch.company
             verdict, summary = _screen(posting, company) if screen else ("", "")
+            fit = _fit(posting, company) if screen and verdict in QUEUE_VERDICTS else {}
             posting.text = posting.text[:TEXT_KEEP]
             hits.append(Hit(watch_id=watch.id, company=company, posting=posting.to_dict(),
-                            verdict=verdict, summary=summary))
+                            verdict=verdict, summary=summary, fit=fit))
         added = store.add_hits(hits)
         seen |= {p.id for p in fresh[:SCREEN_LIMIT]}
         # A board followed from Lenny's Jobs lists its roles and waits for the
@@ -215,7 +270,7 @@ def _check(watch: Watch, screen: bool) -> dict:
         # dozens a day, and the person chose to pick from it (2026-10-22).
         if not watch.notify and not watch.args.get("hold"):
             for hit in added:
-                if hit.verdict in QUEUE_VERDICTS:
+                if hit.verdict in QUEUE_VERDICTS and hit.fit.get("verdict") in FIT_QUEUES:
                     try:
                         queue_hit(hit.id)
                         queued.append(hit.id)
@@ -229,7 +284,7 @@ def _check(watch: Watch, screen: bool) -> dict:
     listed = {p.id for p in rows}
     store.update_watch(watch.id, last_checked=now, last_ok=now, last_total=len(rows),
                        last_matching=len(matching), error=None, broken_mailed=False,
-                       seen_ids=sorted(seen & listed), listed=[listed_row(p) for p in matching[:LISTED_KEEP]])
+                       seen_ids=sorted(seen & listed), listed=[_keep_fit(listed_row(p), watch) for p in matching[:LISTED_KEEP]])
     return {"checked": True, "ok": True, "total": len(rows), "matching": len(matching),
             "new": len(added), "queued": len(queued), "first_run": first_run, "hits": [h.id for h in added]}
 

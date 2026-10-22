@@ -200,6 +200,15 @@ class AddListed(BaseModel):
     posting_id: str
 
 
+@router.post("/watch/{watch_id}/fit")
+def fit_listed(watch_id: str, req: AddListed) -> dict:
+    """Am I qualified for one role on the watch's own list (10 to 20 s)."""
+    result = run.fit_listed(watch_id, req.posting_id)
+    if not result["ok"]:
+        raise HTTPException(409, result["reason"])
+    return result
+
+
 @router.post("/watch/{watch_id}/add")
 def add_listed(watch_id: str, req: AddListed) -> dict:
     """A role from the watch's own list, into autopilot by hand."""

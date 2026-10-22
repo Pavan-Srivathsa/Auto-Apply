@@ -29,6 +29,8 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "start_pipeline", lambda job_id, log_dir=None: 4242)
     monkeypatch.setenv(postings.DIR_ENV, str(tmp_path / "postings"))
     monkeypatch.setattr(run, "_screen", lambda posting, company: ("ok", "fits"))
+    # No brief, no Jev, no model: the fit step is its own test.
+    monkeypatch.setattr(run, "_fit", lambda posting, company: {"verdict": "qualified", "summary": "Qualified: x"})
     monkeypatch.setattr(archive, "APPLICATIONS", tmp_path / "applications")
     monkeypatch.setattr(archive, "INDEX_PATH", tmp_path / "applications" / "index.csv")
     monkeypatch.setattr(outreach_store, "STATE", tmp_path / "outreach.json")

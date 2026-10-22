@@ -300,7 +300,10 @@ def process(job: Job, extra_instruction: str = "", keep_status: bool = False) ->
     # on Jobright is "Job Recommendations | Jobright AI". Jobright's own copy
     # of the posting names the role and employer best; the fetched page next.
     src_title, src_company = postings.source_meta(job.url)
-    title = src_title or posting.title or job.title
+    # A role found by Scout carries the board's own title; an application page's
+    # <title> can be "See Job Post" (Cross River, 2026-10-22), so it does not win.
+    title = (job.title if job.source in ("scout", "lennys") and job.title else "") \
+        or src_title or posting.title or job.title
     # Last: the title and the URL themselves (`company_from`). An ATS embed
     # exposes no company at all, and naming the folder after the job's own
     # title is better than naming fifteen of them `unknown-company`.

@@ -124,6 +124,10 @@ class Hit(BaseModel):
     summary: str = ""
     status: str = "new"                         # new | queued | dismissed
     job_id: Optional[str] = None
+    # Am I qualified (tailor.qualify), worked out in Scout before anything is
+    # queued: {"verdict", "summary", "base", "items": [{text, kind, level, reason}]}.
+    # {} when it could not run or the screen rejected the role first.
+    fit: dict = Field(default_factory=dict)
     mailed: bool = False
 
     @property

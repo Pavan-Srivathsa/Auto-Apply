@@ -15,6 +15,7 @@ from server import queue, runner, settings
 from server.app import app
 
 REAL_SCREEN = run._screen      # kept before the autouse fixture replaces it
+REAL_FIT = run._fit
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +31,8 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv(postings.DIR_ENV, str(tmp_path / "postings"))
     # No model, no network, no SMTP from a test.
     monkeypatch.setattr(run, "_screen", lambda posting, company: ("ok", "fits"))
+    # No brief, no Jev, no model: the fit step is its own test.
+    monkeypatch.setattr(run, "_fit", lambda posting, company: {"verdict": "qualified", "summary": "Qualified: x"})
     monkeypatch.delenv(mail.USER, raising=False)
     monkeypatch.delenv(mail.PASS, raising=False)
 
@@ -506,3 +509,56 @@ def test_roles_that_need_a_security_clearance_are_dropped_by_title_and_by_text()
                  "Ability to obtain a Secret clearance is required.", "This role requires a polygraph."):
         assert level.prescreen(text) == "needs a security clearance", text
     assert level.prescreen("We value clear security practices and code review.") is None
+
+
+def test_only_qualified_roles_are_queued_and_the_rest_wait_with_their_reasons(monkeypatch):
+    fits = {"2": {"verdict": "qualified", "summary": "Qualified: meets 5 of 5"},
+            "3": {"verdict": "stretch", "summary": "Stretch: 1 of 5 missing (Go)"},
+            "4": {"verdict": "not_qualified", "summary": "Not qualified: none met"}, "5": {}}
+    monkeypatch.setattr(run, "_fit", lambda posting, company: fits[posting.id])
+    listing(monkeypatch, [posting(1, "Software Engineer")])
+    watch, _ = store.add_watch(Watch(url="https://boards.greenhouse.io/acme", company="Acme", provider="greenhouse", args={"slug": "acme"}))
+    run.check(watch)
+    listing(monkeypatch, [posting(i, f"Software Engineer {i}", text="desc") for i in range(1, 6)])
+    result = run.check(store.get_watch(watch.id))
+    assert result["new"] == 4 and result["queued"] == 1
+    by_title = {h.posting["title"]: h for h in store.hits()}
+    assert by_title["Software Engineer 2"].status == "queued"
+    assert by_title["Software Engineer 3"].status == "new" and by_title["Software Engineer 3"].fit["verdict"] == "stretch"
+    assert by_title["Software Engineer 5"].status == "new"                      # no verdict: waits, never queued
+
+
+def test_a_fit_checked_on_the_list_survives_the_next_read_and_travels_with_add(monkeypatch):
+    monkeypatch.setattr(run, "_fit", lambda posting, company: {"verdict": "stretch", "summary": "Stretch: x"})
+    listing(monkeypatch, [posting(1, "Software Engineer", company="Acme")])
+    watch, _ = store.add_watch(Watch(url="https://boards.greenhouse.io/acme", company="Acme", provider="greenhouse",
+                                     args={"slug": "acme", "hold": True}))
+    run.check(watch)
+    assert run.fit_listed(watch.id, "1") == {"ok": True, "fit": {"verdict": "stretch", "summary": "Stretch: x"}}
+    run.check(store.get_watch(watch.id))
+    assert store.get_watch(watch.id).listed[0]["fit"]["verdict"] == "stretch"
+    run.add_listed(watch.id, "1")
+    [hit] = store.hits()
+    assert hit.fit["verdict"] == "stretch" and hit.status == "queued"            # the person chose it
+
+
+def test_the_fit_step_runs_the_pipelines_own_steps_against_the_routed_resume(monkeypatch, tmp_path):
+    from tailor import brief as briefs, profile, qualify, resume_bases, tailor
+    run_fit = REAL_FIT
+    tex = tmp_path / "resume.tex"
+    tex.write_text("\\begin{document}resume\\end{document}")
+    base = type("B", (), {"tex_path": tex, "label": "ML Resume"})()
+    monkeypatch.setattr(resume_bases, "choose", lambda posting: type("C", (), {"base": "ml"})())
+    monkeypatch.setattr(resume_bases, "get", lambda base_id: base)
+    monkeypatch.setattr(profile, "pick", lambda text: ["story"])
+    monkeypatch.setattr(tailor, "load_profile", lambda stories=None: "stories: " + ",".join(stories))
+    seen = {}
+    monkeypatch.setattr(briefs, "build", lambda text, master, stories: seen.update(text=text, master=master) or "BRIEF")
+    monkeypatch.setattr(qualify, "assess", lambda brief, master, stories: qualify.Assessment(
+        verdict="stretch", summary="Stretch: 1 of 4 missing (Go)",
+        items=[qualify.Item(text="Go", kind="must", level="missing", reason="No Go.")]))
+    fit = run_fit(posting(1, "Software Engineer", text="We need Go and Python."), "Acme")
+    assert fit["verdict"] == "stretch" and fit["base"] == "ML Resume" and fit["items"][0]["reason"] == "No Go."
+    assert seen == {"text": "We need Go and Python.", "master": "\\begin{document}resume\\end{document}"}
+    monkeypatch.setattr(briefs, "build", lambda *a: (_ for _ in ()).throw(RuntimeError("model down")))
+    assert run_fit(posting(2, "Software Engineer", text="x"), "Acme") == {}       # fails quietly: the role waits

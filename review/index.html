@@ -425,6 +425,16 @@
   .hit:last-child { border-bottom: 0; }
   .hit .t { font-weight: 600; }
   .hit .m { color: var(--muted); font-size: 12px; margin: .2rem 0 .4rem; }
+  .fitline { font-size: 12px; margin: .1rem 0 .45rem; padding-left: .5rem; border-left: 3px solid var(--line); }
+  .fitline strong { text-transform: uppercase; letter-spacing: .05em; margin-right: .35rem; }
+  .fitline.qualified { border-color: var(--green); } .fitline.qualified strong { color: var(--green); }
+  .fitline.stretch { border-color: var(--warn); } .fitline.stretch strong { color: var(--warn); }
+  .fitline.not_qualified { border-color: var(--red); } .fitline.not_qualified strong { color: var(--red); }
+  .fitline details summary { cursor: pointer; color: var(--muted); font-size: 11px; margin-top: .2rem; }
+  .fitwhy { margin: .3rem 0 0; padding-left: 1rem; }
+  .fitwhy .lvl { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+  .fitwhy .lvl.missing { color: var(--red); } .fitwhy .lvl.partly { color: var(--warn); }
+  .fitwhy .why { display: block; color: var(--muted); }
   .hit .v-ok { color: var(--green); } .hit .v-caution { color: var(--warn); } .hit .v-reject { color: var(--red); }
   .hit pre.note { white-space: pre-wrap; font: 12px/1.5 inherit; margin: .4rem 0; padding: .5rem .75rem;
                   border-left: 3px solid var(--purple); background: var(--panel); }
@@ -2009,14 +2019,29 @@ const Scout = (() => {
       </div>`;
   }
 
+  // Am I qualified, worked out in Scout: a verdict, its one line, and the
+  // requirements behind it on a click.
+  function fitBlock(fit) {
+    if (!fit || !fit.verdict) return "";
+    const label = {qualified: "Qualified", stretch: "Stretch", not_qualified: "Not qualified"}[fit.verdict] || fit.verdict;
+    const rows = (fit.items || []).filter((i) => i.level !== "meets").map((i) =>
+      `<li><span class="lvl ${escape(i.level)}">${i.level === "missing" ? "Missing" : "Partly"}</span> ${escape(i.text)}${
+        i.reason ? `<span class="why">${escape(i.reason)}</span>` : ""}</li>`).join("");
+    return `<div class="fitline ${escape(fit.verdict)}"><strong>${label}</strong> ${escape(String(fit.summary || "").replace(/^(Qualified|Stretch|Not qualified):\s*/, ""))}
+      ${fit.base ? `<span class="hint">· against ${escape(fit.base)}</span>` : ""}
+      ${rows ? `<details><summary>Why</summary><ul class="fitwhy">${rows}</ul></details>` : ""}</div>`;
+  }
+
   function renderListed(w) {
     const rows = w.listed || [];
     const queued = new Set((state.hits || []).filter((h) => h.watch_id === w.id && h.status === "queued").map((h) => h.posting.id));
     const card = (r) => `
       <div class="hit ${queued.has(r.id) ? "done" : ""}">
         <div class="t"><a href="${escape(r.url)}" target="_blank" rel="noopener">${escape(r.title)}</a></div>
-        <div class="m">${escape(r.location || "")}${r.posted ? ` · posted ${escape(r.posted)}` : ""}${queued.has(r.id) ? " · in autopilot" : ""}</div>
-        ${queued.has(r.id) ? "" : `<div class="actions"><button class="act primary" data-add="${escape(r.id)}">Add to autopilot</button></div>`}
+        <div class="m">${r.company ? `${escape(r.company)} · ` : ""}${escape(r.location || "")}${r.posted ? ` · posted ${escape(r.posted)}` : ""}${queued.has(r.id) ? " · in autopilot" : ""}</div>
+        ${fitBlock(r.fit)}
+        ${queued.has(r.id) ? "" : `<div class="actions"><button class="act primary" data-add="${escape(r.id)}">Add to autopilot</button>
+          ${r.fit ? "" : `<button class="act" data-fit="${escape(r.id)}">Check fit</button>`}</div>`}
       </div>`;
     return `<h3>At your level now · ${rows.length}</h3>
       <div class="card">${rows.map(card).join("") || `<p class="empty" style="padding:1rem">${w.last_checked ? "Nothing on the page passes the title and location filters. Loosen them above and Check now." : "Not read yet."}</p>`}</div>`;
@@ -2036,6 +2061,7 @@ const Scout = (() => {
         <div class="m">${escape(h.posting.location || "")}${h.posting.posted ? ` · posted ${escape(h.posting.posted)}` : ""}
           · found ${escape(fmt(h.found_at))} · <span class="v-${escape(h.verdict)}">${escape(h.verdict || "not screened")}</span>
           ${h.summary ? ` — ${escape(h.summary)}` : ""}${h.status === "queued" ? " · in autopilot" : h.status === "dismissed" ? " · dismissed" : ""}</div>
+        ${fitBlock(h.fit)}
         ${h.notify ? `<pre class="note">${escape(h.note)}</pre>` : ""}
         ${h.status === "new" ? `<div class="actions">
           <button class="act primary" data-queue="${h.id}">Add to autopilot</button>
@@ -2102,6 +2128,12 @@ const Scout = (() => {
     }
     for (const b of $("detail").querySelectorAll("[data-add]")) b.onclick = () =>
       call(`/scout/watch/${w.id}/add`, { method: "POST", body: JSON.stringify({ posting_id: b.dataset.add }) }, null, async () => { await refresh(); render(); });
+    for (const b of $("detail").querySelectorAll("[data-fit]")) b.onclick = () => {
+      b.disabled = true; b.textContent = "Checking fit… (10–20 s)";
+      call(`/scout/watch/${w.id}/fit`, { method: "POST", body: JSON.stringify({ posting_id: b.dataset.fit }) }, null,
+           async () => { await refresh(); render(); })
+        .then(() => { if (b.isConnected) { b.disabled = false; b.textContent = "Check fit"; } });
+    };
     for (const b of $("detail").querySelectorAll("[data-queue]")) b.onclick = () =>
       call(`/scout/hits/${b.dataset.queue}/queue`, { method: "POST" }, null, async () => { await refresh(); render(); });
     for (const b of $("detail").querySelectorAll("[data-dismiss]")) b.onclick = () =>
