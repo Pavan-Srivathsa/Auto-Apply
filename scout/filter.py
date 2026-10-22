@@ -27,7 +27,19 @@ def at_level(title: str, positive: list[str], negative: list[str]) -> bool:
 
 def matching(watch: Watch, postings: list[Posting]) -> list[Posting]:
     return [p for p in postings if at_level(p.title, watch.positive, watch.negative)
-            and not (watch.us_only and outside_us(p.location))]
+            and not (watch.us_only and outside_us(p.location or place_in_url(p.url)))]
+
+
+_URL_PLACE = re.compile(r"/job/([^/?#]+)/", re.I)
+
+
+def place_in_url(url: str) -> str:
+    """The place a Workday link names (`/job/Bengaluru/...`), for a row that
+    lists none: Accenture's rows on Lenny's Jobs carry no location text,
+    so "Custom Software Engineer" in Bengaluru read as unknown and was
+    queued (2026-10-22). "" when the link names no place."""
+    match = _URL_PLACE.search(url or "")
+    return match.group(1).replace("-", " ").replace("_", " ") if match else ""
 
 
 # ------------------------------------------------------------------ place

@@ -144,3 +144,8 @@ Asked: "In different locations, check for only the United States."
 Changed: `scout/filter.py` (`outside_us` keeps a place only when it reads as the US: the country, a state by name or by code after a comma, a major US city; an empty line, a bare "Remote"/"Hybrid", or "N locations" go on to the screen; named foreign places overrule a two-letter code), `tests/test_scout.py`.
 Intent: The filter used to drop only places it knew to be abroad and kept the rest, so "Herzliya (Remote)", "Remoto" and any foreign city off its list came through; "Hyderabad, TS, IN" read as Indiana and "Toronto, CA" as California. Measured on the live Lenny's list: 39 of 50 kept, every kept row a US place, an empty line, or a bare remote.
 
+## 2026-10-22 — A row with no location or company reads them off its link
+Asked: "There are already jobs in Lenny's dashboard that are Bangalore-related. Can you remove all of them and redo Lenny?"
+Changed: `scout/filter.py` (`place_in_url`: a Workday `/job/<place>/` stands in for an empty location), `scout/lennys.py` (`company_from_url` for a row with no company link), `tests/test_lennys.py`; data: the Bengaluru job it queued (a23d) deleted, the Lenny's watch reset and read again.
+Intent: Accenture's rows on Lenny's carry no location text and no company link, so nine India roles read as "unknown place" and one was queued and tailored under the name "Lenny's Jobs" before it was stopped.
+
