@@ -493,3 +493,16 @@ def test_api_add_from_the_list_and_us_only_patch(client, monkeypatch):
     assert client.post(f"/scout/watch/{wid}/add", json={"posting_id": "1"}).json()["created"] is False   # same job, not twice
     assert client.post(f"/scout/watch/{wid}/add", json={"posting_id": "x"}).status_code == 404
     assert client.patch(f"/scout/watch/{wid}", json={"us_only": False}).json()["us_only"] is False
+
+
+def test_roles_that_need_a_security_clearance_are_dropped_by_title_and_by_text():
+    watch = Watch(url="https://boards.greenhouse.io/acme", company="Acme", provider="greenhouse", args={"slug": "acme"})
+    titles = ["AI Engineer, Supercomputing, Special Programs - Top Secret Clearance",
+              "Software Engineer, Connected Warfare (Active Clearance)", "Classified Platform Engineer",
+              "Software Engineer, TS/SCI", "Software Engineer, AI Infrastructure (Starshield)", "Software Engineer II"]
+    rows = [posting(i, t, location="Hawthorne, CA") for i, t in enumerate(titles)]
+    assert [p.title for p in level.matching(watch, rows)] == titles[4:]
+    for text in ("Candidates must have the ability to obtain and maintain a TS/SCI clearance.",
+                 "Ability to obtain a Secret clearance is required.", "This role requires a polygraph."):
+        assert level.prescreen(text) == "needs a security clearance", text
+    assert level.prescreen("We value clear security practices and code review.") is None
