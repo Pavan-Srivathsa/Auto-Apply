@@ -213,3 +213,14 @@ judges each sentence or bullet, and a line whose figures and names are all on
 the master or the picked stories is proven by the code (`bank.ungrounded`), so
 Jev's doubt alone cannot cap it. A line with nothing checkable stays Jev's call.
 The resume critic reads the visible bullets, not the LaTeX. Glean re-scored 7/10.
+
+## 2026-10-22 — No visa sponsorship is checked first, and the Scout never applies
+
+Intent: "Check this first always. Don't even apply through Scout if this is true
+for the job." `filter.prescreen` now tests for a refusal to sponsor (YC's "US
+citizen/visa only", "unable to sponsor", "without current or future
+sponsorship", "US citizens or permanent residents only", "not open to OPT/CPT")
+before years, clearance or citizenship, so the Scout's screen is a reject with
+no model call. YC rows with that visa line are never listed, and `queue_hit`
+refuses such a hit, including the hand "Add to autopilot" (which now reads the
+description first).

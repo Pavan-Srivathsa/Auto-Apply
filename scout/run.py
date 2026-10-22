@@ -109,6 +109,11 @@ def add_listed(watch_id: str, posting_id: str) -> dict:
         return {"ok": False, "reason": "not on the list any more; check the page again"}
     posting = Posting(id=row["id"], title=row["title"], url=row["url"], location=row.get("location", ""),
                       posted=row.get("posted", ""), company=row.get("company", ""))
+    try:
+        from tailor import fetch
+        posting.text = fetch.fetch(posting.url).text[:TEXT_KEEP]
+    except Exception:  # noqa: BLE001 - the pipeline fetches again
+        pass
     hit = Hit(watch_id=watch.id, company=row.get("company") or watch.company, posting=posting.to_dict(),
               fit=row.get("fit") or {})
     store.add_hits([hit])
@@ -420,6 +425,8 @@ def queue_hit(hit_id: str) -> dict:
     if hit is None:
         return {"ok": False, "reason": "no such hit"}
     p = hit.posting
+    if level.needs_no_sponsor(p.get("text") or "") or hit.summary == level.NO_SPONSOR:
+        return {"ok": False, "reason": "the posting does not sponsor visas; the Scout never applies to it"}
     watch = store.get_watch(hit.watch_id)
     source = "lennys" if watch and "lennys" in (watch.provider, watch.args.get("via")) else "scout"
     job, created = queue.add(Job(url=p["url"], title=p["title"], company=hit.company, source=source))

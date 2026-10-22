@@ -38,3 +38,27 @@ def test_detect_names_both_and_yc_lists_only():
     assert detect("https://jobs.a16z.com/jobs")[0] == "a16z"
     provider, args, _ = detect("https://www.ycombinator.com/jobs/role/software-engineer")
     assert provider == "yc" and args["hold"] is True         # applying is behind the person's YC login
+
+
+def test_a_posting_that_will_not_sponsor_is_out_before_anything_else():
+    from scout import filter as level
+    for text in ["US citizen/visa only",
+                 "We are unable to sponsor visas for this role.",
+                 "Candidates must be authorized to work in the US without current or future sponsorship.",
+                 "This company does not offer visa sponsorship.",
+                 "Open to U.S. citizens or permanent residents only.",
+                 "We will not sponsor H-1B.",
+                 "No visa sponsorship is available. 6+ years required."]:
+        assert level.prescreen(text) == level.NO_SPONSOR, text
+    for text in ["Will you now or in the future require sponsorship?", "We sponsor visas.",
+                 "Visa sponsorship available for the right candidate.", "US citizenship/visa not required"]:
+        assert level.prescreen(text) != level.NO_SPONSOR, text
+
+
+def test_yc_never_lists_a_citizen_or_visa_only_role():
+    import html as h, json
+    from scout import yc
+    jobs = [{"id": 1, "title": "SWE", "url": "/companies/a/jobs/1", "visa": "US citizen/visa only"},
+            {"id": 2, "title": "SWE", "url": "/companies/b/jobs/2", "visa": "Will sponsor"}]
+    page = f'<div data-page="{h.escape(json.dumps({"props": {"jobPostings": jobs}}))}"></div>'
+    assert [p.id for p in yc.parse(page)] == ["2"]
