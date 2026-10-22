@@ -152,14 +152,14 @@ def _missing(kind: str, brief: Optional[briefs.Brief], document: str) -> list[br
     return [r for r in top if not briefs.covered(r, document)]
 
 
-def _coverage_fixes(kind: str, brief: Optional[briefs.Brief], document: str) -> list[str]:
+def _coverage_fixes(kind: str, brief: Optional[briefs.Brief], document: str, on_file: str = "") -> list[str]:
     fixes = [f'Answer the required item "{r.text}" with this evidence: "{r.evidence}".'
              for r in _missing(kind, brief, document)]
     if kind == "resume" and brief:
         # The ATS side: the posting's exact term, missing from a resume whose
         # evidence shows the work. Never a term with nothing on file.
         terms = [(t, r) for r in brief.requirements if not r.gap for t in r.terms
-                 if not briefs.mentions(document, t)]
+                 if not briefs.mentions(document, t) and (not on_file or briefs.mentions(on_file, t))]
         fixes += [f'Use the posting\'s term "{t}" where the evidence shows that work: "{r.evidence}".'
                   for t, r in terms[:3]]
     return fixes
@@ -274,7 +274,8 @@ def judge(kind: str, document: str, brief: Optional[briefs.Brief], subject: str 
     """Jev when configured, else the text model. Coverage fixes from code come
     first: an unanswered requirement with evidence is the most useful note."""
     critique = (judge_jev if jev.configured() else judge_text)(kind, document, brief, subject, sources)
-    critique.fixes = _coverage_fixes(kind, brief, document) + critique.fixes
+    on_file = "\n".join(v for k, v in (sources or {}).items() if k != "posting" and v)
+    critique.fixes = _coverage_fixes(kind, brief, document, on_file) + critique.fixes
     return critique
 
 

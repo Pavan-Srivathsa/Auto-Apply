@@ -220,10 +220,11 @@ def detail(job_id: str) -> dict:
     }
 
 
-def _ats(brief, resume: str) -> Optional[dict]:
+def _ats(brief, resume: str, on_file: str = "") -> Optional[dict]:
     """The posting's own terms (the brief's spellings) found in the finished
-    resume, the way an ATS keyword filter reads it. A missing term with
-    evidence on file is fixable; one without is shown, never added."""
+    resume, the way an ATS keyword filter reads it. A missing term is "on
+    file" only when that term itself is in the master resume or the stories:
+    a requirement answered by Python does not put Go on file (2026-10-22)."""
     if not resume:
         return None
     seen, rows = set(), []
@@ -233,7 +234,8 @@ def _ats(brief, resume: str) -> Optional[dict]:
             if not key or key in seen:
                 continue
             seen.add(key)
-            rows.append({"term": term, "present": briefs.mentions(resume, term), "evidence": not req.gap})
+            rows.append({"term": term, "present": briefs.mentions(resume, term),
+                         "evidence": briefs.mentions(on_file, term)})
     present = sum(1 for r in rows if r["present"])
     return {"present": present, "total": len(rows),
             "missing_fixable": [r["term"] for r in rows if not r["present"] and r["evidence"]],
@@ -260,6 +262,10 @@ def _fit(app_dir: Path) -> Optional[dict]:
         return path.read_text(errors="replace") if path.exists() else ""
 
     resume, letter = read("resume.tex"), read("cover_letter.md")
+    try:
+        on_file = read("master_resume.tex") + "\n" + tailor.load_profile(stories=profile.read_used(app_dir))
+    except Exception:  # noqa: BLE001 - the card still shows, with a narrower "on file"
+        on_file = read("master_resume.tex")
     rows = [{"text": r.text, "kind": r.kind, "evidence": _readable(r.evidence), "where": r.where,
              "strength": r.strength, "gap": r.gap,
              "in_resume": briefs.covered(r, resume) if resume else None,
@@ -285,7 +291,7 @@ def _fit(app_dir: Path) -> Optional[dict]:
         "musts_gap": sum(1 for row in rows if row["kind"] == "must" and row["gap"]),
         "in_resume": sum(1 for row in answerable if row["in_resume"]),
         "judged_by_jev": any(row["strength"] is not None for row in rows),
-        "ats": _ats(brief, resume),
+        "ats": _ats(brief, resume, on_file),
         "letter": scored("cover_review.json"),
         "resume": scored("resume_review.json"),
         "verdict": {"call": assessment["verdict"], "summary": assessment["summary"],

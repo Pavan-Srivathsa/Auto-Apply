@@ -95,9 +95,14 @@ def test_the_ats_count_reads_the_postings_terms_and_never_suggests_a_term_with_n
         briefs.Requirement(text="Pipelines", kind="must", terms=["PySpark", "Airflow"], evidence="ran PySpark jobs"),
         briefs.Requirement(text="Go services", kind="must", terms=["Go"], evidence=""),
     ])
-    ats = review._ats(brief, r"\resumeItem{Ran PySpark jobs over 2M rows}")
+    ats = review._ats(brief, r"\resumeItem{Ran PySpark jobs over 2M rows}", on_file="Ran PySpark and Airflow jobs")
     assert (ats["present"], ats["total"]) == (1, 3)
     assert ats["missing_fixable"] == ["Airflow"] and ats["missing_no_evidence"] == ["Go"]
+    # A requirement answered by Python does not put Go or Java on file.
+    langs = briefs.Brief(requirements=[briefs.Requirement(text="Languages", kind="must", terms=["Python", "Go", "Java"],
+                                                          evidence="Python services")])
+    ats = review._ats(langs, r"\resumeItem{Built Python services}", on_file="Python services, C++")
+    assert ats["missing_fixable"] == [] and ats["missing_no_evidence"] == ["Go", "Java"]
 
 
 def test_the_resume_critic_asks_for_a_missing_term_only_where_evidence_exists():
@@ -106,5 +111,9 @@ def test_the_resume_critic_asks_for_a_missing_term_only_where_evidence_exists():
         briefs.Requirement(text="Pipelines", kind="must", terms=["PySpark"], evidence="ran PySpark jobs"),
         briefs.Requirement(text="Go services", kind="must", terms=["Go"], evidence=""),
     ])
-    fixes = critic._coverage_fixes("resume", brief, "Built forecasting models")
+    fixes = critic._coverage_fixes("resume", brief, "Built forecasting models", on_file="ran PySpark jobs")
     assert any('"PySpark"' in f for f in fixes) and not any('"Go"' in f for f in fixes)
+    langs = briefs.Brief(requirements=[briefs.Requirement(text="Languages", kind="must", terms=["Go", "Java"],
+                                                          evidence="Python services")])
+    fixes = critic._coverage_fixes("resume", langs, "Python", on_file="Python, C++")
+    assert not any('"Go"' in f or '"Java"' in f for f in fixes)                       # never told to add Go
