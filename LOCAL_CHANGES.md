@@ -89,3 +89,8 @@ Asked: testing the loop on the Stripe job ("Use stripe").
 Changed: `tailor/fetch.py` (`greenhouse_job`, `_greenhouse`; the page scrape is `_fetch_page`), `tests/test_fetch.py`.
 Intent: A Greenhouse link (the embedded form `/embed/job_app?for=<board>&token=<id>`, or `/<board>/jobs/<id>`) is read from `boards-api.greenhouse.io`, which carries the full description; the page is scraped only when the API has nothing. Stripe's posting had been saved as its application form, so its documents were tailored without the job description.
 
+## 2026-10-22 — Followed boards wait for a click; a skip list for companies
+Asked: the 24 boards followed from Lenny's Jobs should list only ("I add"), and defense and space boards (SpaceX, SpaceX SI, Anduril, Varda, Stoke Space) removed and not followed again.
+Changed: `scout/run.py` (`hold` on followed watches stops auto-queueing; `skipped` and the Lenny's watch's `args.skip` list), `tests/test_lennys.py`; data: the existing followed watches get `hold`, the five are removed, and the skip list is set on the person's Lenny's watch.
+Intent: SpaceX and Anduril list ~2,500 roles each and a few hundred pass the title filter, many behind clearance or export control; auto-queueing them would have filled forms nobody chose. Roles from followed boards now wait in the Scout tab with "Add to autopilot". The skip list is the person's data, not names in the repository.
+

@@ -188,7 +188,7 @@ def _check(watch: Watch, screen: bool) -> dict:
 
     if watch.provider == "lennys" and watch.args.get("follow", True):
         try:
-            follow_boards(rows)
+            follow_boards(rows, skip=watch.args.get("skip", []))
         except Exception:  # noqa: BLE001 - the extra never fails the check
             log.exception("scout follow")
     matching = level.matching(watch, rows)
@@ -206,7 +206,10 @@ def _check(watch: Watch, screen: bool) -> dict:
                             verdict=verdict, summary=summary))
         added = store.add_hits(hits)
         seen |= {p.id for p in fresh[:SCREEN_LIMIT]}
-        if not watch.notify:
+        # A board followed from Lenny's Jobs lists its roles and waits for the
+        # person's "Add to autopilot" (`hold`): a big employer's board can post
+        # dozens a day, and the person chose to pick from it (2026-10-22).
+        if not watch.notify and not watch.args.get("hold"):
             for hit in added:
                 if hit.verdict in QUEUE_VERDICTS:
                     try:
@@ -277,12 +280,21 @@ BOARD_URL = {
 FOLLOW_LIMIT = 15      # new watches per check; each is read once to prove it works
 
 
-def follow_boards(rows: list[Posting], limit: int = FOLLOW_LIMIT) -> list[str]:
+def skipped(company: str, args: dict, skip: list[str]) -> bool:
+    """Is this company on the person's skip list (Lenny's watch `args.skip`),
+    by name or by the board's slug, case-insensitively, as a substring."""
+    names = " ".join([company, *[str(v) for v in args.values()]]).lower()
+    return any(word.strip().lower() and word.strip().lower() in names for word in skip)
+
+
+def follow_boards(rows: list[Posting], limit: int = FOLLOW_LIMIT, skip: list[str] = ()) -> list[str]:
     """A watch on each company's own board behind a Lenny's row, so the
     person sees every role there and not only the ones the page ranked.
     A board already watched (same provider and arguments) or one that does
     not read is skipped; nothing is queued here, a new watch's first check
-    only records what is listed. Returns the names added."""
+    only records what is listed, and later roles wait in the Scout tab for the
+    person's "Add to autopilot" (`hold`). A company on the Lenny's watch's
+    `skip` list is never followed. Returns the names added."""
     from scout import DetectError, detect
     have = {(w.provider, json.dumps(w.args, sort_keys=True)) for w in store.watches()}
     added: list[str] = []
@@ -295,9 +307,11 @@ def follow_boards(rows: list[Posting], limit: int = FOLLOW_LIMIT) -> list[str]:
             continue
         if provider not in BOARD_URL or (provider, json.dumps(args, sort_keys=True)) in have:
             continue
+        if skipped(row.company or guess, args, list(skip)):
+            continue
         have.add((provider, json.dumps(args, sort_keys=True)))
         watch = Watch(url=BOARD_URL[provider].format(**args), company=row.company or guess,
-                      provider=provider, args=args | {"via": "lennys"})
+                      provider=provider, args=args | {"via": "lennys", "hold": True})
         if not verify(watch).get("ok"):
             continue
         _, created = store.add_watch(watch)
