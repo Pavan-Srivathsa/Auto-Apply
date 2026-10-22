@@ -113,6 +113,24 @@ def posted_date(age: str, now: datetime | None = None) -> str:
     return (now - timedelta(seconds=int(match.group(1)) * SECONDS[match.group(2).lower()])).strftime("%Y-%m-%d")
 
 
+GENERIC_HOST = {"www", "jobs", "job", "boards", "job-boards", "careers", "career", "apply", "hire", "recruiting"}
+
+
+def company_from_url(url: str) -> str:
+    """The employer a link names, for a row with no company link: the first
+    part of the host ("accenture.wd103.myworkdayjobs.com"), else the board
+    slug after a generic host ("jobs.ashbyhq.com/traba"). A job queued
+    under the board's own name ("Lenny's Jobs") is worse than a guess."""
+    parts = urlparse(url)
+    first = parts.netloc.lower().split(".")[0]
+    if first and first not in GENERIC_HOST:
+        name = first
+    else:
+        path = [p for p in parts.path.split("/") if p and p not in ("embed", "en", "en-us")]
+        name = path[0] if path else ""
+    return name.replace("-", " ").title()
+
+
 def to_postings(rows: list[dict]) -> list[Posting]:
     """Rows as the page showed them, newest first as the page sorts them,
     each employer URL once."""
@@ -124,7 +142,8 @@ def to_postings(rows: list[dict]) -> list[Posting]:
             continue
         seen.add(url)
         postings.append(Posting(id=url, title=row["title"], url=url, location=row.get("location", ""),
-                                posted=posted_date(row.get("age", "")), company=row.get("company", "")))
+                                posted=posted_date(row.get("age", "")),
+                                company=row.get("company") or company_from_url(url)))
     postings.sort(key=lambda p: p.posted, reverse=True)     # the page sorts by relevance
     return postings
 

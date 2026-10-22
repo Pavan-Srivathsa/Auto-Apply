@@ -207,3 +207,15 @@ def test_followed_boards_wait_for_the_person_and_skip_what_they_said(monkeypatch
     result = run.check(store.get_watch(acme.id))
     assert result["new"] == 1 and result["queued"] == 0                   # listed, waiting for the click
     assert queue.all_jobs() == []
+
+
+def test_a_row_without_location_or_company_reads_them_off_its_link():
+    from scout import filter as level
+    url = "https://accenture.wd103.myworkdayjobs.com/AccentureCareers/job/Bengaluru/Custom-Software-Engineer_ATCI-1"
+    [row] = lennys.to_postings([{"href": url, "title": "Custom Software Engineer", "company": "", "location": ""}])
+    assert row.company == "Accenture"
+    assert level.place_in_url(url) == "Bengaluru"
+    watch = Watch(url=lennys.URL, company="Lenny's Jobs", provider="lennys")
+    assert level.matching(watch, [row]) == []                                  # India, dropped before any screen
+    assert lennys.company_from_url("https://jobs.ashbyhq.com/traba/1") == "Traba"
+    assert level.place_in_url("https://jobs.ashbyhq.com/traba/1") == ""
