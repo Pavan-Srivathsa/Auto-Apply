@@ -64,6 +64,9 @@ ARTIFACTS = {
 
 class Decision(BaseModel):
     note: Optional[str] = None
+    # The person applied on the employer's site themselves, whatever Autopilot
+    # got to (a Workday fill that failed, a job never filled): recorded as theirs.
+    manual: bool = False
 
 
 class FillRequest(BaseModel):
@@ -953,10 +956,15 @@ def mark_submitted(job_id: str, decision: Decision) -> dict:
     job, app_dir = _job_and_dir(job_id)
     # FILLING is accepted too: the human may finish and submit the form while
     # the agent is still poking at it. Their submission wins; the agent stops.
-    if job.status not in (Status.FILLED, Status.FILLING):
+    # `manual`: they applied themselves, from any state but submitted
+    # (2026-10-23: Workday forms they finished by hand read as "not filled").
+    if job.status == Status.SUBMITTED:
+        raise HTTPException(409, "already marked submitted")
+    if not decision.manual and job.status not in (Status.FILLED, Status.FILLING):
         raise HTTPException(409, f"job is {job.status.value}, not filled")
     killed = runner.stop_fill(job_id)
-    note = decision.note or "submitted by hand"
+    note = decision.note or ("submitted by hand, manually: you applied yourself"
+                             f" (Autopilot had it at {job.status.value})" if decision.manual else "submitted by hand")
     if killed:
         note += f" (fill {killed} still running, killed)"
     store.set_status(app_dir, Status.SUBMITTED, note)

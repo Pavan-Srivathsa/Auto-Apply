@@ -1218,6 +1218,8 @@ async function show(id) {
           ? `<a class="act" href="${escape(job.url)}" target="_blank" rel="noreferrer">Open application</a>
              <button class="act" id="fillAutopilot">Autopilot fill</button>
              <button class="act primary" id="fillJobright">Jobright + check</button>` : ""}
+        ${data.status !== "submitted" && data.status !== "filling"
+          ? `<button class="act primary" id="submittedManual" title="You applied on the employer's site yourself; it is tracked as submitted">I submitted it myself</button>` : ""}
         ${data.status !== "skipped" && data.status !== "submitted"
           ? `<button class="act danger" id="reject">Reject…</button>` : ""}
         <button class="act danger" id="deleteJob">Delete permanently…</button>
@@ -1308,6 +1310,7 @@ async function show(id) {
         <div class="decide">
           <button class="small danger act" id="reject">Reject</button>
           <button class="small danger act" id="deleteJob">Delete…</button>
+          <button class="small act" id="submittedManual" title="You applied on the employer's site yourself; it is tracked as submitted">I submitted it myself</button>
           <button class="big act" id="approve" title="Approves the documents and fills the form. It stops on the filled form; you press Submit.">Apply</button>
         </div>
       </div>` : ""}
@@ -1332,6 +1335,10 @@ async function show(id) {
   if ($("reject")) $("reject").onclick = () => openReject(id);
   if ($("deleteJob")) $("deleteJob").onclick = () => deleteJob(id);
   if ($("submitted")) $("submitted").onclick = () => markSubmitted(id);
+  if ($("submittedManual")) $("submittedManual").onclick = async () => {
+    if (!confirm("Mark this job submitted? Only if you applied on the employer's site yourself.")) return;
+    await act(id, () => api(`/review/${id}/submitted`, { method: "POST", body: JSON.stringify({ manual: true }) }));
+  };
   if ($("revise")) $("revise").onclick = () => revise(id);
   // The note box: one line until it is touched, then room to write, and
   // the re-tailor button only once there is a note.

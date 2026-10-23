@@ -1239,3 +1239,12 @@ def test_the_page_offers_the_button_on_a_stopped_job():
     assert '$("retry").onclick = () => retry(id, data)' in page
     assert "async function retry(id, data)" in page
     assert f'/retry`, {{ method: "POST"' in page
+
+
+def test_a_job_the_person_applied_to_themselves_can_be_marked_submitted_from_any_state(client):
+    job_id, _ = reviewable_job()
+    queue.update(job_id, status=Status.FAILED)
+    assert client.post(f"/review/{job_id}/submitted", json={}).status_code == 409        # not filled: refused as before
+    r = client.post(f"/review/{job_id}/submitted", json={"manual": True})
+    assert r.status_code == 200 and queue.get(job_id).status == Status.SUBMITTED
+    assert client.post(f"/review/{job_id}/submitted", json={"manual": True}).status_code == 409   # once

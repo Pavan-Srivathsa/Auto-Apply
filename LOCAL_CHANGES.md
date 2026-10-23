@@ -403,3 +403,11 @@ Intent: the roles stuck at "fit unknown". A page carrying a Greenhouse job id
 (`gh_jid`: careerpuck's wrapper, Fivetran's own careers page) is read from
 Greenhouse's board API; Workable postings from Workable's. Dover stays
 unreadable (JavaScript only, one role).
+
+## 2026-10-23 — "I submitted it myself" on any job
+
+Intent: Workday forms the person finished by hand still read as "not filled",
+and the only Submitted button needed a filled job. `POST /review/{id}/submitted`
+with `manual: true` marks a job submitted from any state but submitted, noted
+as the person's own application; the page offers "I submitted it myself" on
+every job not yet submitted. It feeds the outcome tracking like any submission.
