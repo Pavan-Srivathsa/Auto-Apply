@@ -269,3 +269,18 @@ last three years"; neither carries a figure or a name, so no check saw them.
 tailor rejects an attempt with one; the critic flags the line (0.8) and names
 the word. The posting no longer proves a line about the candidate. Replayed over
 65 past resumes: 4 would have been refused, each for a verb its master never uses.
+
+## 2026-10-22 — ML/DS technical review of every rewritten bullet
+
+Intent: the person's spec, "upgrade the Jev critic into a technically rigorous
+ML/DS resume reviewer". `tailor/reviewer.py` checks each rewritten bullet
+against its own source (provenance survives reordering and story swaps), in
+code, then Jev (batched narrow questions), then a reasoning model only for
+doubtful bullets. `pipeline.verify_bullets` asks the writer to correct
+flagged bullets with the issue and the evidence, at most twice, puts the
+master's wording back for anything still unverified, and blocks auto-approve.
+The review page shows original, rewrite, verdict, issue, evidence and
+correction with accept / reject / edit; edits are locked per job. Jev's client
+validates replies, retries transient failures and counts cost
+(`tailor/costs.py`). Benchmark: `tools/bench_reviewer.py`, 132 public synthetic
+pairs plus 44 private real ones; results in `bench/RESULTS.md`.

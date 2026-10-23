@@ -98,6 +98,8 @@ def _payload(messages: list[dict], model: Optional[str], temperature: float,
         "max_tokens": max_tokens,
         "reasoning": reasoning or {"effort": REASONING_EFFORT},
         "messages": messages,
+        # OpenRouter puts the call's cost on the reply (`usage.cost`), for tailor.costs.
+        "usage": {"include": True},
     }
 
 
@@ -130,7 +132,11 @@ def chat(
     reasoning: Optional[dict] = None,
 ) -> str:
     """Chat completion over a full message history. Returns the assistant's text."""
+    import time
+    from . import costs
+
     payload = _payload(messages, model, temperature, max_tokens, reasoning)
+    started = time.monotonic()
     try:
         response = httpx.post(API_URL, json=payload, headers=_headers(), timeout=TIMEOUT)
     except httpx.HTTPError as exc:
@@ -140,6 +146,10 @@ def chat(
         raise LLMError(f"OpenRouter returned {response.status_code}: {response.text[:400]}")
 
     data = response.json()
+    spent = data.get("usage") or {}
+    costs.record("openrouter:" + str(payload["model"]), spent.get("prompt_tokens", 0),
+                 spent.get("completion_tokens", 0), usd=float(spent.get("cost") or 0.0),
+                 seconds=time.monotonic() - started)
     if "choices" not in data or not data["choices"]:
         raise LLMError(f"OpenRouter returned no choices: {str(data)[:400]}")
 

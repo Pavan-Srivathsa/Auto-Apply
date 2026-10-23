@@ -148,6 +148,18 @@
   .fit .level { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-top: .3rem; }
   .fit .level.missing { color: var(--red); } .fit .level.partly { color: var(--warn, #b8860b); } .fit .level.meets { color: var(--green); }
   .fit .why { display: block; color: var(--muted); font-size: 12px; margin-top: .2rem; }
+  /* The ML/DS bullet review: each rewritten bullet against its own source. */
+  .breview .row { border-top: 1px solid var(--line); padding: .55rem 0; font-size: 13px; display: grid; grid-template-columns: 5.5rem 1fr; gap: .2rem .8rem; }
+  .breview .verdict { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
+  .breview .PASS { color: var(--green); } .breview .WARN { color: var(--warn, #b8860b); }
+  .breview .FAIL { color: var(--red); } .breview .UNKNOWN { color: var(--muted); }
+  .breview .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-right: .35rem; }
+  .breview .line { display: block; margin: .1rem 0; }
+  .breview .issue { color: var(--red); } .breview .ev q { quotes: none; color: var(--muted); }
+  .breview .ctl { margin-top: .3rem; display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+  .breview .ctl button[aria-pressed="true"] { outline: 2px solid var(--ink); }
+  .breview .meta { color: var(--muted); font-size: 11px; }
+  .breview details { margin-top: .4rem; } .breview summary { cursor: pointer; color: var(--muted); font-size: 12px; }
   @media (max-width: 800px) { .fit td.marks { width: auto; } .fit td.ask { width: auto; } }
   table.kv.corr tr.th td { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   table.kv.corr td.was { color: var(--red); text-decoration: line-through; }
@@ -781,6 +793,72 @@ function fitHtml(fit) {
     </div>`;
 }
 
+// The ML/DS bullet review (tailor/reviewer.py): every rewritten bullet next to
+// what it was rewritten from, the verdict, the issue and the evidence. A
+// verdict is advice and a gate, never a score; accept clears a warning for
+// this job, reject puts the master's wording back once "Apply" is pressed.
+function bulletsHtml(br) {
+  if (!br || !br.bullets) return "";
+  const changed = br.bullets.filter((b) => b.method !== "unchanged" || b.decision);
+  window.__bulletRows = Object.fromEntries(br.bullets.map((b) => [b.index, b]));
+  const c = br.counts || {};
+  const head = `<div class="sum">
+      <span>Pass <strong style="color:var(--green)">${c.PASS || 0}</strong></span>
+      <span>Warn <strong style="color:var(--warn,#b8860b)">${c.WARN || 0}</strong></span>
+      <span>Fail <strong style="color:var(--red)">${c.FAIL || 0}</strong></span>
+      ${c.UNKNOWN ? `<span>Not reviewed <strong>${c.UNKNOWN}</strong></span>` : ""}
+      ${br.reverted && br.reverted.length ? `<span>${br.reverted.length} put back to the master's wording</span>` : ""}
+      <span class="hint">${br.needs_human ? "Waits for you: nothing here auto-approves." : "Every changed bullet is backed by its source."}</span>
+    </div>${br.error ? `<div class="issue">${escape(br.error)}</div>` : ""}`;
+  const rows = changed.map((b) => {
+    const pick = (d, label) => `<button class="small act" data-bullet="${b.index}" data-decision="${d}"
+        aria-pressed="${b.decision === d}">${label}</button>`;
+    return `<div class="row">
+      <div><span class="verdict ${b.verdict}">${b.verdict}</span>
+        <span class="meta">${b.confidence ? Math.round(b.confidence * 100) + "%" : ""} ${escape(b.method || "")}</span></div>
+      <div>
+        <span class="line"><span class="lbl">Was</span>${escape(b.original || "(no master bullet)")}</span>
+        <span class="line"><span class="lbl">Now</span>${escape(b.rewritten)}</span>
+        ${b.issue ? `<span class="line issue"><span class="lbl">Issue</span>${escape(b.issue)}</span>` : ""}
+        ${b.verdict !== "PASS" && b.evidence ? `<span class="line ev"><span class="lbl">Evidence</span><q>${escape(b.evidence)}</q> <span class="meta">${escape(b.source_kind)}</span></span>` : ""}
+        ${b.unverified_claims && b.unverified_claims.length ? `<span class="line meta">Not in its source: ${b.unverified_claims.map(escape).join(", ")}</span>` : ""}
+        ${b.correction ? `<span class="line"><span class="lbl">Correction</span>${escape(b.correction)} <span class="meta">${escape(b.correction_verdict || "")}</span></span>` : ""}
+        ${b.edited ? `<span class="line"><span class="lbl">Your edit</span>${escape(b.edited)}</span>` : ""}
+        <div class="ctl">${b.verdict !== "PASS" ? pick("accept", "Accept as is") : ""}${b.original_tex && b.verdict !== "PASS" ? pick("reject", "Reject: use the master's wording") : ""}
+          <button class="small act" data-edit="${b.index}">Edit…</button>
+          ${b.decision ? `<button class="small act" data-bullet="${b.index}" data-decision="">Undo</button>` : ""}</div>
+      </div></div>`;
+  }).join("");
+  const rejected = changed.some((b) => b.decision === "reject" || b.decision === "edit");
+  return `<h3>Bullet review</h3>
+    <div class="card fit breview">${head}${rows || `<div class="hint">No bullet changed.</div>`}
+      ${rejected ? `<div class="ctl"><button class="act primary" id="bulletsApply">Apply: save a new resume with your rejections and edits</button></div>` : ""}
+      ${br.rounds && br.rounds.length ? `<details><summary>Review trace (${br.rounds.length})</summary><pre class="hint">${escape(JSON.stringify(br.rounds, null, 1))}</pre></details>` : ""}
+    </div>`;
+}
+
+function wireBullets(id) {
+  for (const button of document.querySelectorAll("[data-bullet]")) {
+    button.onclick = () => act(id, () => api(`/review/${id}/bullets/${button.dataset.bullet}/decision`,
+      { method: "POST", body: JSON.stringify({ decision: button.dataset.decision }) }));
+  }
+  for (const button of document.querySelectorAll("[data-edit]")) {
+    button.onclick = () => {
+      const index = Number(button.dataset.edit);
+      const row = (window.__bulletRows || {})[index] || {};
+      const text = prompt("Your wording for this bullet. It is checked against its source like any other, " +
+                          "and kept on every later re-tailor of this job.", row.edited || row.rewritten || "");
+      if (text === null || !text.trim()) return;
+      act(id, () => api(`/review/${id}/bullets/${index}/decision`,
+        { method: "POST", body: JSON.stringify({ decision: "edit", text }) }));
+    };
+  }
+  if ($("bulletsApply")) $("bulletsApply").onclick = () => {
+    if (!confirm("Save a new resume version with the rejected bullets back in the master's wording and your edits in?")) return;
+    act(id, () => api(`/review/${id}/bullets/apply`, { method: "POST", body: "{}" }));
+  };
+}
+
 async function show(id) {
   if (view !== "jobs") return;
   current = id;
@@ -949,6 +1027,7 @@ async function show(id) {
       </div>` : ""}
 
     ${fitHtml(data.fit)}
+    ${bulletsHtml(data.bullet_review)}
 
     ${resumeDoc || letterDoc ? `
       <div class="actions">
@@ -1070,6 +1149,7 @@ async function show(id) {
   }
   if ($("fillNow")) $("fillNow").onclick = () => fillAgain(id, "jobright_check");
   if ($("retry")) $("retry").onclick = () => retry(id, data);
+  wireBullets(id);
   if ($("fillAutopilot")) $("fillAutopilot").onclick = () => fillAgain(id, "autopilot");
   if ($("fillJobright")) $("fillJobright").onclick = () => fillAgain(id, "jobright_check");
   if ($("reveal")) wireReveal(id);

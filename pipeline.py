@@ -27,7 +27,7 @@ from server import screen as screen_server
 from server.models import Job, Status
 from tailor import bank
 from tailor import brief as briefs
-from tailor import cover, critic, fetch, layout, profile, quality, qualify, resume_bases, tailor
+from tailor import cover, critic, fetch, layout, profile, quality, qualify, resume_bases, reviewer, tailor
 from tex import compile as texc
 from tex import mark
 
@@ -226,6 +226,7 @@ def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
     profile_text = tailor.load_profile(stories=stories)
     brief = write_brief(app_dir, posting, master, profile_text)
     options = ""
+    bank_stories: list[str] = []
     if brief:
         write_qualify(app_dir, brief, master, profile_text)
         options, bank_stories = write_bullets(app_dir, brief, master)
@@ -246,6 +247,8 @@ def write_resume(app_dir: Path, posting: fetch.Posting, stories: list[str],
         options=options,
     )
     result = review_resume(app_dir, posting, master, result, brief, profile_text, base, model, options)
+    result = verify_bullets(app_dir, posting, master, result, brief, profile_text,
+                            stories + (bank_stories if brief else []), base, model, options)
     store.write(app_dir, "resume.tex", result.tex)
     store.write(app_dir, "resume.diff", result.diff or "(no changes)\n")
     store.write(
@@ -434,6 +437,14 @@ def auto_approve(app_dir: Path, job: Job) -> bool:
     if fit.get("verdict") == "not_qualified":
         tell_tab(job, "done", "Not qualified, by the brief; decide on the review page")
         return False
+    # The bullet review is a gate, not a score: anything unverified, put back
+    # to the master's wording, or not reviewed at all waits for the person.
+    import os
+    if os.environ.get("AUTOPILOT_BULLET_REVIEW", "1") != "0":
+        checked = reviewer.load(app_dir)
+        if checked is None or checked.needs_human:
+            tell_tab(job, "done", "The bullet review needs you; decide on the review page")
+            return False
     store.set_status(app_dir, Status.APPROVED, "approved by autopilot: clean screen, tailored")
     queue.update(job.id, status=Status.APPROVED)
     pid = runner.start_fill(job.id)
@@ -542,6 +553,123 @@ def review_resume(app_dir: Path, posting, master: str, result, brief, profile_te
     kept.warnings = result.warnings + kept.warnings
     kept.attempts = result.attempts
     return kept
+
+
+BULLET_ROUNDS = 2   # corrections the writer gets for flagged bullets before the master's wording goes back
+
+
+def _story_texts(slugs: list[str]) -> dict[str, str]:
+    out = {}
+    for slug in dict.fromkeys(slugs):
+        doc = profile.STORIES / slug / "tailor.md"
+        if doc.exists():
+            out[slug] = doc.read_text(errors="replace")
+    return out
+
+
+def verify_bullets(app_dir: Path, posting, master: str, result, brief, profile_text: str,
+                   stories: list[str], base, model: Optional[str], options: str = ""):
+    """The ML/DS technical review of every rewritten bullet against its own
+    source (tailor.reviewer), with a bounded, controlled revision:
+
+    1. bullets the review flags (FAIL or WARN) go back to the writer with the
+       issue and the evidence, never a replacement fact;
+    2. the correction passes every tailoring check (lines, counts, links,
+       figures, pages) and is reviewed again against the same sources;
+    3. it is kept only when no bullet got worse and fewer are flagged;
+    4. after BULLET_ROUNDS, a bullet still flagged gets its master wording
+       back when it has one (a story swap does not: its master bullet belongs
+       to another entry), and the job waits for the person.
+
+    The writing-quality score never enters into it. The trace is saved as
+    `bullet_review.json`. Off with AUTOPILOT_BULLET_REVIEW=0."""
+    import os
+    if os.environ.get("AUTOPILOT_BULLET_REVIEW", "1") == "0":
+        return result
+    requirements = [r.text for r in brief.requirements] if brief else []
+    texts = _story_texts(stories)
+    current = result
+    review = reviewer.review(master, current.tex, requirements, texts)
+    for n in range(1, BULLET_ROUNDS + 1):
+        flagged = [b for b in review.bullets if b.verdict in (reviewer.FAIL, reviewer.WARN)]
+        if not flagged or review.error:
+            break
+        notes = reviewer.revision_notes(review)
+        entry = {"round": n, "asked": [{"bullet": b.rewritten, "issue": b.issue, "evidence": b.evidence}
+                                       for b in flagged]}
+        try:
+            again = tailor.tailor(
+                posting, resume_tex=current.tex, page_check=make_page_check(base.tex_path),
+                target_pages=base_page_count(base.tex_path, base.pdf_path),
+                extra_instruction="A technical reviewer checked each rewritten bullet against the only text "
+                                  "that supports it. Fix exactly these, and change nothing else:\n"
+                                  + "\n".join(f"- {note}" for note in notes),
+                profile=profile_text, model=model, layout_pdf=base.pdf_path,
+                brief=brief.as_message() if brief else "", revision=True, options=options)
+        except Exception as exc:  # noqa: BLE001 - the correction failed a tailoring check
+            entry["outcome"] = f"correction refused by the checks: {str(exc)[:200]}"
+            review.rounds.append(entry)
+            break
+        checked = reviewer.review(master, again.tex, requirements, texts)
+        before, after = review.counts, checked.counts
+        worse = after[reviewer.FAIL] > before[reviewer.FAIL] or after[reviewer.UNKNOWN] > before[reviewer.UNKNOWN]
+        fewer = (after[reviewer.FAIL] + after[reviewer.WARN]) < (before[reviewer.FAIL] + before[reviewer.WARN])
+        by_original = {b.original: b for b in checked.bullets if b.original}
+        for b in flagged:
+            fixed = by_original.get(b.original)
+            if fixed:
+                b.correction, b.correction_verdict = fixed.rewritten, fixed.verdict
+        entry["counts_before"], entry["counts_after"] = before, after
+        if worse or not fewer:
+            entry["outcome"] = "correction not kept: " + ("a bullet got worse" if worse else "nothing improved")
+            review.rounds.append(entry)
+            break
+        entry["outcome"] = "correction kept"
+        checked.rounds = review.rounds + [entry]
+        again.diff = tailor.make_diff(master, again.tex)
+        again.rejections = current.rejections + again.rejections
+        again.warnings = current.warnings + again.warnings
+        again.attempts = current.attempts
+        again.suggestions = current.suggestions
+        current, review = again, checked
+    # Whatever is still flagged: the master's own wording where there is one.
+    safe = [b.index for b in review.bullets
+            if b.verdict in (reviewer.FAIL, reviewer.WARN) and b.source_kind.startswith("master") and b.original_tex]
+    if safe:
+        restored = reviewer.revert(current.tex, review, safe)
+        if restored != current.tex:
+            try:
+                tailor._check_invented(master, restored, profile_text, posting.text)
+                current.tex = restored
+                current.diff = tailor.make_diff(master, restored)
+                review.reverted = safe
+                for b in review.bullets:
+                    if b.index in safe:
+                        b.correction, b.correction_verdict = b.original, "master wording restored"
+            except Exception as exc:  # noqa: BLE001 - keep the flagged bullet; the person decides
+                review.rounds.append({"round": "revert", "outcome": f"could not restore: {str(exc)[:200]}"})
+    # The person's own edits for this job win over every model's wording.
+    try:
+        job_id = json.loads((app_dir / "job.json").read_text()).get("id", "")
+    except (OSError, ValueError):
+        job_id = ""
+    if job_id:
+        held, changed = reviewer.apply_locks(current.tex, review, job_id)
+        if changed:
+            current.tex, current.diff = held, tailor.make_diff(master, held)
+            for b in review.bullets:
+                if b.index in changed:
+                    b.correction, b.correction_verdict, b.decision = "", "your edit, kept", "edit"
+                    b.edited = next(r["text"] for r in reviewer.locks(job_id) if r["original"] == b.original)
+            review.rounds.append({"round": "locks", "outcome": f"{len(changed)} of your edits put back"})
+    reviewer.save(app_dir, review)
+    counts = review.counts
+    current.suggestions = (current.suggestions + "\n\n**Bullet review** "
+                           f"(PASS {counts['PASS']}, WARN {counts['WARN']}, FAIL {counts['FAIL']}, "
+                           f"UNKNOWN {counts['UNKNOWN']}"
+                           + (f"; {len(review.reverted)} put back to the master's wording" if review.reverted else "")
+                           + ")" + (": waits for you" if review.needs_human else ""))
+    return current
 
 
 def write_brief(app_dir: Path, posting, master: str, profile_text: str) -> Optional[briefs.Brief]:

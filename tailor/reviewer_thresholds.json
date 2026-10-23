@@ -1,0 +1,35 @@
+{
+  "thresholds": {
+    "pass_at": 0.7,
+    "fail_at": 0.15,
+    "escalate_at": 0.14
+  },
+  "calibrated_on": "bench/reviewer_pairs.py, the 88 even pairs of 176, 2026-10-22",
+  "rubric": "mlds-2026-10-22.2",
+  "jev_only_at_these": {
+    "n": 88,
+    "material": 46,
+    "ok": 31,
+    "false_acceptance_rate": 0.0,
+    "false_rejection_rate": 0.032,
+    "human_review_rate_on_ok": 0.226,
+    "precision": 0.852,
+    "recall": 1.0,
+    "fail_recall": 0.891,
+    "unknown": 0,
+    "escalated": 0,
+    "recall_by_category": {
+      "bench_vs_opt": 1.0,
+      "causal": 1.0,
+      "deployment_claim": 1.0,
+      "fabricated_impact": 1.0,
+      "inflated_ownership": 1.0,
+      "latency_vs_throughput": 1.0,
+      "metric_attribution": 1.0,
+      "rag_embedding_wrong": 1.0,
+      "tech_substitution": 1.0,
+      "training_claim": 1.0,
+      "wrong_percentage": 1.0
+    }
+  }
+}

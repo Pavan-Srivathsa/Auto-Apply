@@ -103,6 +103,13 @@ CATALOG: tuple[Prompt, ...] = (
            _const("tailor.critic", "PROMPT")),
     Prompt("critic.format", "Draft critic reply format", "Tailoring", FORMAT_NOTE,
            _const("tailor.critic", "FORMAT")),
+    Prompt("reviewer", "ML/DS bullet reviewer", "Tailoring",
+           "The reasoning model a rewritten bullet is escalated to when Jev is unsure. It answers "
+           "PASS / FAIL / UNCERTAIN with an issue and a quote from the source, never new wording. "
+           "The verdict rules and thresholds are in code (tailor/reviewer.py).",
+           _const("tailor.reviewer", "PROMPT")),
+    Prompt("reviewer.format", "ML/DS bullet reviewer reply format", "Tailoring", FORMAT_NOTE,
+           _const("tailor.reviewer", "FORMAT")),
     Prompt("outreach.followup", "Outreach follow-up", "Tailoring",
            "The follow-up drafted when an email has had no answer for two days. A draft only; "
            "it is sent by your click like the first one.",

@@ -26,6 +26,7 @@ from .report import router as report_router
 
 # "Have I applied to this already?" by one ladder, read-only (identity/).
 from identity.api import router as identity_router
+from .bullets import router as bullets_router
 from .github import router as github_router
 from .outreach import router as outreach_router
 from .bank import router as bank_router
@@ -112,6 +113,7 @@ app.include_router(scout_router)
 app.include_router(prompts_router)
 app.include_router(report_router)
 app.include_router(identity_router)
+app.include_router(bullets_router)
 
 
 @app.on_event("startup")

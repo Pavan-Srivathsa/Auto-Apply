@@ -176,6 +176,9 @@ def detail(job_id: str) -> dict:
         # Are there documents to attach? Try again restarts a job that has a
         # compiled resume at the fill, and one without at the tailor.
         "tailored": _tailored(app_dir),
+        # The ML/DS bullet review with the person's decisions (server/bullets.py);
+        # None for a folder from before it existed.
+        "bullet_review": _bullet_review(app_dir),
         "screen": _screen(app_dir),
         "screen_error": read("screen_error.txt"),
         "resume_source": read("resume.tex"),
@@ -653,6 +656,14 @@ OVERRULE = (
     "not yours to reopen: tailor the resume for this posting under every rule "
     "above, and do not reply with MISMATCH."
 )
+
+
+def _bullet_review(app_dir: Path):
+    from . import bullets
+    try:
+        return bullets.detail(app_dir)
+    except Exception:  # noqa: BLE001 - an unreadable review never breaks the page
+        return None
 
 
 def _tailored(app_dir: Path) -> bool:
