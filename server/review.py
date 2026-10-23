@@ -12,6 +12,8 @@ an existing one is ever overwritten.
 
 from __future__ import annotations
 
+import asyncio
+
 import json
 import re
 import time
@@ -656,6 +658,28 @@ OVERRULE = (
     "not yours to reopen: tailor the resume for this posting under every rule "
     "above, and do not reply with MISMATCH."
 )
+
+
+@router.post("/{job_id}/show-form")
+def show_form(job_id: str) -> dict:
+    """The filled form's own tab in front, its submit button in view, for the
+    person to press. Never opens a fresh copy of the form: the answers live
+    in that tab, and a new tab on the same link is an empty form."""
+    import json as _json
+    from browser import autofill, chrome
+    job, app_dir = _job_and_dir(job_id)
+    try:
+        fill = _json.loads((app_dir / "form_fill.json").read_text())
+    except (OSError, ValueError):
+        raise HTTPException(409, "this job has not been filled yet")
+    cdp = chrome.cdp_url(chrome.port())
+    target = fill.get("target_id", "")
+    if not chrome.activate_tab(target):
+        target = autofill.find_tab(cdp, fill.get("url") or job.url) or ""
+        if not chrome.activate_tab(target):
+            raise HTTPException(410, "the filled form's tab was closed; press Fill again to fill it in a new tab")
+    button = asyncio.run(autofill.reveal_submit(cdp, target))
+    return {"shown": True, "button": button}
 
 
 def _freeze(job_id: str, app_dir: Path) -> None:

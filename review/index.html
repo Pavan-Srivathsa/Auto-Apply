@@ -1316,7 +1316,8 @@ async function show(id) {
         <button class="small danger act" id="reject">Reject</button>
         <button class="small danger act" id="deleteJob">Delete…</button>
         <button class="small act" id="fillNow">Fill again</button>
-        <button class="big act" id="submitted">I submitted it</button>
+        <button class="small act" id="submitted">I submitted it</button>
+        <button class="big act" id="showForm" title="Brings the filled form's tab to the front with its Submit button in view">Open the filled form</button>
       </div>` : ""}
     ${stopped ? `
       <div class="fab">
@@ -1348,6 +1349,12 @@ async function show(id) {
   }
   if ($("fillNow")) $("fillNow").onclick = () => fillAgain(id, "jobright_check");
   if ($("retry")) $("retry").onclick = () => retry(id, data);
+  if ($("showForm")) $("showForm").onclick = async () => {
+    try {
+      const out = await api(`/review/${id}/show-form`, { method: "POST", body: "{}" });
+      $("showForm").textContent = out.button ? `In front: press “${out.button}” there` : "In front: Submit is at the bottom";
+    } catch (err) { alert(err.message); }
+  };
   wireBullets(id);
   if ($("prepGo")) $("prepGo").onclick = async () => {
     $("prepSlot").innerHTML = `<p class="hint">Matching your stories and reading the posting…</p>`;

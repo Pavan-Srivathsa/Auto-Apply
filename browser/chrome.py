@@ -169,6 +169,19 @@ def close_tab(target_id: str, port_number: Optional[int] = None) -> bool:
         return False
 
 
+def activate_tab(target_id: str, port_number: Optional[int] = None) -> bool:
+    """Bring one tab of our Chrome to the front (/json/activate). Nothing
+    in it is pressed. False when the browser is not up or the tab is gone."""
+    if not target_id:
+        return False
+    url = cdp_url(port() if port_number is None else port_number)
+    try:
+        with urllib.request.urlopen(f"{url}/json/activate/{target_id}", timeout=2) as response:
+            return response.status == 200
+    except Exception:  # noqa: BLE001 - no browser, or no such tab
+        return False
+
+
 def close(port_number: Optional[int] = None) -> bool:
     """Quit the Auto-Apply Chrome. Returns whether one was running.
 

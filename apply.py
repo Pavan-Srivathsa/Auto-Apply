@@ -151,9 +151,24 @@ def fill_one(job: Job) -> bool:
     store.set_status(app_dir, Status.FILLED, note)
     queue.update(job.id, status=Status.FILLED)
     print(f"  filled, {note}")
-    print("  the browser window is still open on the form — check it, submit it")
-    print("  yourself, then mark it submitted at http://127.0.0.1:8787")
+    # The filled form comes to the front with its own submit button in view,
+    # for the person to press (2026-10-22). Nothing is pressed here.
+    if os.environ.get("AUTOPILOT_SHOW_FILLED", "1") != "0":
+        shown = show_filled_form(app_dir)
+        print(f"  the filled form is in front{f', its {shown!r} button in view' if shown else ''}")
+    print("  check it and press its Submit yourself; Autopilot marks it submitted when the confirmation shows")
     return True
+
+
+def show_filled_form(app_dir) -> str:
+    """Bring the job's filled tab to the front, submit button in view."""
+    import json as _json
+    from browser import autofill, chrome
+    try:
+        target = _json.loads((app_dir / "form_fill.json").read_text()).get("target_id", "")
+    except (OSError, ValueError):
+        return ""
+    return autofill.show_filled(chrome.cdp_url(chrome.port()), target)
 
 
 def main(argv: list[str]) -> int:

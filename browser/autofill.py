@@ -514,6 +514,43 @@ async def notify(cdp_url: str, target_id: str, state: str, note: str = "") -> No
         log.debug("notify %s failed: %s", state, error)
 
 
+# The employer's own submit control, found to be shown, never pressed: the
+# person asked to land on the filled form with the button in view (2026-10-22).
+# It is scrolled to and outlined; nothing here calls click().
+REVEAL_SUBMIT_JS = r"""(() => {
+  const words = /^(submit|apply|send|finish|complete)( (my |your )?(application|app))?\b|^submit application$/i;
+  const all = [...document.querySelectorAll('button, input[type=submit], [role=button], a.button')];
+  const seen = all.filter((e) => e.offsetParent !== null);
+  const label = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || '').trim();
+  const button = seen.reverse().find((e) => words.test(label(e)));
+  if (!button) { window.scrollTo({top: document.body.scrollHeight, behavior: 'instant'}); return ''; }
+  button.scrollIntoView({block: 'center', behavior: 'instant'});
+  button.style.outline = '4px solid #8b5cf6';
+  button.style.outlineOffset = '3px';
+  return label(button);
+})()"""
+
+
+async def reveal_submit(cdp_url: str, target_id: str) -> str:
+    """Scroll the filled form to its own submit button and outline it.
+    Returns the button's label, '' when none was found. Best effort."""
+    try:
+        async with attached(cdp_url, target_id=target_id) as (page, _):
+            return await page.evaluate(REVEAL_SUBMIT_JS) or ""
+    except Exception as error:  # noqa: BLE001 - showing the button is a courtesy
+        log.debug("reveal submit failed: %s", error)
+        return ""
+
+
+def show_filled(cdp_url: str, target_id: str) -> str:
+    """The filled form in front, its submit button in view. For a caller
+    without an event loop. Returns the button's label, or ''."""
+    from browser import chrome
+    if not target_id or not chrome.activate_tab(target_id):
+        return ""
+    return asyncio.run(reveal_submit(cdp_url, target_id))
+
+
 def notify_url(cdp_url: str, url: str, state: str, note: str = "") -> bool:
     """`notify` for a caller without an event loop or a target id (the
     pipeline): the open tab on `url`, if any. False when there is none."""

@@ -161,6 +161,10 @@ Specifically:
   All four go through `review.mark_seen` / `mark_submitted`, mark only a
   `filled` / `filling` job, write no correction, and never close the
   browser. The agent reaches none of them.
+- **A finished fill comes to the front** (2026-10-22): `apply.py` activates the
+  filled tab and `autofill.reveal_submit` scrolls the employer's submit button
+  into view and outlines it. It never clicks; the person presses it. The job
+  page's "Open the filled form" (`/review/{id}/show-form`) does the same.
 - **Adding a job never changes the active tab** (2026-09-20). The banner's
   `openReview(id, { focus: false })` points the Autopilot tab at the job
   (`/__open` with `focus`, `Target.createTarget` `background`, the

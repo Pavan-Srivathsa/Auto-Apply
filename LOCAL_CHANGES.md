@@ -385,3 +385,14 @@ wireless, satellite, security, Starshield and hardware disciplines (244 roles
 at the level to 101, 66 distinct titles); it is read every 14 days. A watch
 can have its own tab (`Watch.own_tab`, a checkbox in its settings): its roles
 leave the main Jobs list and get a ranked list of their own.
+
+## 2026-10-22 — A finished fill comes to the front, its submit button in view
+
+Intent: "whenever it is completely done filling, open the filled application
+so that I can click the submit button directly". When `apply.py` marks a job
+filled, the form's own tab is brought to the front (`chrome.activate_tab`)
+and scrolled to the employer's submit button, which is outlined
+(`autofill.reveal_submit`; it scrolls and outlines, it never clicks). A fresh
+tab would be an empty form, so it is always the filled tab. The job page's
+"Open the filled form" does the same on demand (`POST /review/{id}/show-form`);
+a closed tab says to Fill again. `AUTOPILOT_SHOW_FILLED=0` turns the jump off.
