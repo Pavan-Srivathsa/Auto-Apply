@@ -284,3 +284,14 @@ correction with accept / reject / edit; edits are locked per job. Jev's client
 validates replies, retries transient failures and counts cost
 (`tailor/costs.py`). Benchmark: `tools/bench_reviewer.py`, 132 public synthetic
 pairs plus 44 private real ones; results in `bench/RESULTS.md`.
+
+## 2026-10-22 — Outcome tracking, calibration and the job-search funnel
+
+Intent: the person's Auto-Apply 2.0 spec, features 2 and 3. `career/` keeps an
+append-only outcome ledger (`data/career/outcomes.jsonl`) where every event is
+the person's or inferred with its evidence (status history, a reply the
+watcher read); silence is "quiet", never a rejection. A snapshot of fit,
+policy version, resume and posting is frozen at submission. The Insights tab
+shows the funnel, fit calibration, breakdowns, the weakest step and
+recommendations, each with denominators and 95% intervals and no rate below
+five. Design follows Career-Ops' calibrate/funnel (MIT), reimplemented.

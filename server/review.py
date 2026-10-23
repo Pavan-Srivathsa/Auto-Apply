@@ -658,6 +658,16 @@ OVERRULE = (
 )
 
 
+def _freeze(job_id: str, app_dir: Path) -> None:
+    """The fit, the resume and the posting as they were at submission
+    (career/snapshot.py), once. A failure here never undoes a submission."""
+    try:
+        from career import snapshot
+        snapshot.take(queue.get(job_id), app_dir)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _bullet_review(app_dir: Path):
     from . import bullets
     try:
@@ -927,6 +937,7 @@ def mark_submitted(job_id: str, decision: Decision) -> dict:
         note += f" (fill {killed} still running, killed)"
     store.set_status(app_dir, Status.SUBMITTED, note)
     queue.update(job_id, status=Status.SUBMITTED)
+    _freeze(job_id, app_dir)
 
     # One last look at the form before its tab goes, so the changes the
     # human may still pick to remember are the final ones. Never fails
@@ -1013,6 +1024,7 @@ def mark_seen(job: Job, app_dir: Path, url: str = "", quote: str = "", by: str =
         note += f" (fill {killed} still running, killed)"
     store.set_status(app_dir, Status.SUBMITTED, note)
     queue.update(job.id, status=Status.SUBMITTED)
+    _freeze(job.id, app_dir)
     # The page has moved on to the confirmation; the last state the tab
     # reported before that is what the human can still pick from.
     return {"id": job.id, "status": Status.SUBMITTED.value, "marked": True,

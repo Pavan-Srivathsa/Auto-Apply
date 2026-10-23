@@ -533,6 +533,7 @@
     <button id="tabResumes" aria-current="false">Resumes</button>
     <button id="tabScout" aria-current="false">Scout<span class="broken" id="scoutBroken" hidden style="margin-left:.5rem">Broken</span></button>
     <button id="tabPrompts" aria-current="false">Prompts</button>
+    <button id="tabInsights" aria-current="false">Insights</button>
   </div>
   <span class="count" id="count"></span>
   <button class="pstat" id="profileStat" aria-current="false" hidden></button>
@@ -666,12 +667,14 @@ function switchView(name) {
   $("tabResumes").setAttribute("aria-current", name === "resumes");
   $("tabScout").setAttribute("aria-current", name === "scout");
   $("tabPrompts").setAttribute("aria-current", name === "prompts");
+  $("tabInsights").setAttribute("aria-current", name === "insights");
   if (name !== "profile") { Profile.leave(); $("detail").classList.remove("chatpane"); }
   if (name === "jobs") loadList();
   else if (name === "profile") Profile.open();
   else if (name === "scout") Scout.open();
   else if (name === "resumes") Resumes.open();
   else if (name === "prompts") Prompts.open();
+  else if (name === "insights") Insights.open();
   else Projects.open();
 }
 $("tabJobs").onclick = () => switchView("jobs");
@@ -680,6 +683,7 @@ $("tabProjects").onclick = () => switchView("projects");
 $("tabResumes").onclick = () => switchView("resumes");
 $("tabScout").onclick = () => switchView("scout");
 $("tabPrompts").onclick = () => switchView("prompts");
+$("tabInsights").onclick = () => switchView("insights");
 
 async function loadList() {
   if (view !== "jobs") return;
@@ -835,6 +839,83 @@ function bulletsHtml(br) {
       ${rejected ? `<div class="ctl"><button class="act primary" id="bulletsApply">Apply: save a new resume with your rejections and edits</button></div>` : ""}
       ${br.rounds && br.rounds.length ? `<details><summary>Review trace (${br.rounds.length})</summary><pre class="hint">${escape(JSON.stringify(br.rounds, null, 1))}</pre></details>` : ""}
     </div>`;
+}
+
+// Career intelligence (career/, server/career.py): the funnel, calibration of
+// fit against outcomes, bottlenecks and recommendations. Every rate has its
+// denominator and 95% interval; below the sample floor there is no rate.
+const Insights = (() => {
+  let viewing = "funnel";
+  let report = null;
+  const SECTIONS = [["funnel", "Funnel and insights", "what happened to your applications"]];
+  const pct = (r) => r && r.rate != null ? `${Math.round(r.rate * 100)}% <span class="hint">(${r.k}/${r.n}, 95% ${Math.round(r.ci95[0] * 100)}–${Math.round(r.ci95[1] * 100)}%)</span>`
+                                         : `<span class="hint">${r ? `${r.k}/${r.n}` : "–"}, too few</span>`;
+  function sections() { return SECTIONS.concat(Insights.extra || []); }
+  function renderNav() {
+    $("count").textContent = "Insights";
+    $("list").innerHTML = sections().map(([key, label, hint]) => `<button class="row" data-insight="${key}"
+        data-tone="agent" aria-current="${viewing === key}"><span class="role">${label}</span><span class="cov">${hint}</span></button>`).join("");
+    for (const b of $("list").querySelectorAll("[data-insight]")) b.onclick = () => { viewing = b.dataset.insight; render(); };
+  }
+  function table(rows, label) {
+    if (!rows || !rows.length) return `<p class="hint">No resolved applications in any ${label} yet.</p>`;
+    return `<table class="kv"><tr><td><strong>${label}</strong></td><td>n</td><td>response</td><td>screen</td><td>interview</td></tr>
+      ${rows.map((g) => `<tr><td>${escape(g.group)}</td><td>${g.n}</td><td>${pct(g.response)}</td><td>${pct(g.screen)}</td><td>${pct(g.interview)}</td></tr>`).join("")}</table>`;
+  }
+  async function renderFunnel() {
+    report = await api("/career/report");
+    const f = report.funnel, c = report.calibration, b = report.bottleneck;
+    const stages = Object.entries(f.counts);
+    $("detail").innerHTML = `<div class="head"><h2>Funnel and insights</h2><span class="state agent">${f.jobs} jobs</span></div>
+      <p class="hint">Applications under ${report.quiet_days} days with nothing recorded are in flight and are not data points. Quiet ones count as no response yet, never as a rejection. No rate is shown below ${report.min_n} resolved applications. Record what happened on each job's page.</p>
+      <div class="card fit"><div class="sum">${stages.map(([k, v]) => `<span>${k} <strong>${v}</strong></span>`).join("")}</div>
+        <div class="sum hint"><span>in flight ${f.in_flight}</span><span>quiet ${f.quiet}</span><span>resolved ${f.resolved}</span></div>
+        <table class="kv">${f.conversion.map((s) => `<tr><td>${s.from} → ${s.to}</td><td>${pct(s)}</td></tr>`).join("")}</table></div>
+      <h3>Recommendations</h3><div class="card prose">${report.recommendations.map((r) => `<p>${escape(r.text)}</p>`).join("")}</div>
+      <h3>Does the fit score predict responses?</h3><div class="card"><p><strong>${escape(c.reading)}</strong>${c.backfilled ? ` <span class="hint">(${c.backfilled} snapshots rebuilt from folders after the fact)</span>` : ""}</p>
+        ${table(c.by_band, "fit band")}${table(c.by_verdict, "fit verdict")}</div>
+      <h3>By role, seniority and channel</h3><div class="card">${table(c.by_role_family, "role family")}${table(c.by_seniority, "seniority")}${table(c.by_channel, "channel")}</div>
+      <h3>Bottleneck</h3><div class="card prose"><p>${b.weakest_step ? `Weakest measured step: <strong>${b.weakest_step.from} → ${b.weakest_step.to}</strong>, ${pct(b.weakest_step)}.` : "No step has enough resolved applications to measure."}</p>
+        ${Object.keys(b.reasons).length ? Object.entries(b.reasons).map(([basis, reasons]) => `<p><strong>${escape(basis)}</strong>: ${Object.entries(reasons).map(([r, n]) => `${escape(r)} ${n}`).join(", ")}</p>`).join("") : ""}
+        <p class="hint">${escape(b.note)}</p></div>
+      ${report.missing_skills.length ? `<h3>Requirements often missing where nobody answered</h3><div class="card"><table class="kv">${report.missing_skills.map((m) => `<tr><td>${escape(m.requirement)}</td><td>${m.in_no_response}/${m.of_no_response} without a response · ${m.in_response}/${m.of_response} with one</td></tr>`).join("")}</table></div>` : ""}`;
+  }
+  function render() {
+    renderNav();
+    const extra = (Insights.renderers || {})[viewing];
+    if (extra) return extra();
+    return renderFunnel();
+  }
+  return { open() { render(); }, poll() { /* a report is read on demand, not every five seconds */ }, render,
+           extra: [], renderers: {} };
+})();
+
+// The outcome of one job (career/events.py): its timeline, inferred and yours,
+// and what you record next. Recording never changes the job's status.
+async function outcomeHtml(id) {
+  let data, vocab;
+  try { [data, vocab] = await Promise.all([api(`/career/jobs/${id}`), api("/career/vocabulary")]); }
+  catch (err) { return ""; }
+  window.__careerVocab = vocab;
+  const rows = data.events.map((e) => `<tr><td>${escape(e.at.slice(0, 10))}</td><td><strong>${escape(e.event)}</strong>
+      ${e.reason ? ` · ${escape(e.reason)} (${escape(e.basis || "unknown")})` : ""}</td>
+      <td class="hint">${e.source === "user" ? "you" : escape(e.how)}${e.note ? ` · ${escape(e.note)}` : ""}</td></tr>`).join("");
+  const o = data.outcome;
+  return `<h3>Outcome</h3><div class="card"><p>Stage <strong>${escape(data.stage)}</strong> · ${escape(o.state.replace("_", " "))}${o.how ? ` <span class="hint">(${escape(o.how)})</span>` : ""}</p>
+    <table class="kv">${rows}</table>
+    <div class="actions"><select id="outEvent">${[...vocab.stages.slice(1), ...vocab.outcomes].map((e) => `<option>${e}</option>`).join("")}</select>
+      <select id="outReason"><option value="">reason (if it ended)</option>${vocab.reasons.map((r) => `<option>${r}</option>`).join("")}</select>
+      <select id="outBasis"><option value="">how you know</option>${vocab.bases.map((r) => `<option>${r}</option>`).join("")}</select>
+      <input type="date" id="outAt"><input type="text" id="outNote" placeholder="note">
+      <button class="act" id="outAdd">Record</button></div>
+    <p class="hint">Confirmed means the employer said so. Nothing here changes the job or submits anything.</p></div>`;
+}
+
+function wireOutcome(id) {
+  if (!$("outAdd")) return;
+  $("outAdd").onclick = () => act(id, () => api(`/career/jobs/${id}`, { method: "POST", body: JSON.stringify({
+    event: $("outEvent").value, reason: $("outReason").value, basis: $("outBasis").value,
+    at: $("outAt").value, note: $("outNote").value }) }));
 }
 
 function wireBullets(id) {
@@ -1028,6 +1109,7 @@ async function show(id) {
 
     ${fitHtml(data.fit)}
     ${bulletsHtml(data.bullet_review)}
+    <div id="outcomeSlot"></div>
 
     ${resumeDoc || letterDoc ? `
       <div class="actions">
@@ -1150,6 +1232,9 @@ async function show(id) {
   if ($("fillNow")) $("fillNow").onclick = () => fillAgain(id, "jobright_check");
   if ($("retry")) $("retry").onclick = () => retry(id, data);
   wireBullets(id);
+  if (["submitted", "filled", "filling", "approved"].includes(data.status)) outcomeHtml(id).then((html) => {
+    if (current === id && $("outcomeSlot")) { $("outcomeSlot").innerHTML = html; wireOutcome(id); }
+  });
   if ($("fillAutopilot")) $("fillAutopilot").onclick = () => fillAgain(id, "autopilot");
   if ($("fillJobright")) $("fillJobright").onclick = () => fillAgain(id, "jobright_check");
   if ($("reveal")) wireReveal(id);
@@ -1978,6 +2063,7 @@ function pollNow() {
   else if (view === "scout") Scout.poll();
   else if (view === "resumes") Resumes.poll();
   else if (view === "prompts") Prompts.poll();
+  else if (view === "insights") Insights.poll();
   else Projects.poll();
   loadScoutBroken();
   Setup.poll();
