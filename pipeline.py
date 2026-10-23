@@ -118,7 +118,17 @@ def fetch_posting(job: Job) -> fetch.Posting:
     if not candidates:
         raise error or RuntimeError(f"no posting text for {job.url}")
 
-    scores = [(quality.score(p.text), i) for i, (_, p) in enumerate(candidates)]
+    # The board's own API answered: the employer's copy of the posting, with
+    # nothing to score it against. A browser's copy of a Greenhouse form is
+    # longer than the description inside it, and would have won (upstream e2c600b).
+    if fetched is not None and fetched.authoritative:
+        fetched.text_source = "the job board"
+        if not fetched.company:
+            fetched.company = next((p.company for _, p in candidates if p.company), "")
+        return fetched
+    # A page that is the application form, not the description, is never the posting.
+    scores = [(0 if quality.looks_like_form(p.text) else quality.score(p.text), i)
+              for i, (_, p) in enumerate(candidates)]
     top_score, top = max(scores, key=lambda item: (item[0], -item[1]))
     if top_score == 0 and fetched is None:
         raise error or RuntimeError(f"no posting text for {job.url}")

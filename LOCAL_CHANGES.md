@@ -232,3 +232,11 @@ in the U.S. without sponsorship?" and the answer "Yes, I am authorized ...
 without sponsorship" read as the employer refusing, so a posting captured on
 its form would be rejected. A match in a question, or in a sentence that opens
 like an answer ("Yes,", "No,", "I am"), no longer counts.
+
+## 2026-10-22 — Read the posting from the board's own API
+
+Intent: from the original repo (e2c600b), ported. Most captures are the
+application form, not the description. `tailor/boards.py` (taken as is) asks
+Ashby, Greenhouse, Lever and Workday's public endpoints first; that copy wins
+outright in `pipeline.fetch_posting` (`Posting.authoritative`), and a page that
+reads as a form (`quality.looks_like_form`) scores zero against the others.

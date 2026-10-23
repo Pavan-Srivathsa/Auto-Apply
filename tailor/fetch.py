@@ -46,6 +46,9 @@ class Posting:
     # Which copy of the text this is: the fetched page, what the browser
     # saw, or Jobright's copy. Set by the pipeline when it picked.
     text_source: str = ""
+    # Read from the board's own API rather than scraped off a page, so no
+    # other copy of the posting competes with it (`tailor.boards`).
+    authoritative: bool = False
 
     def to_markdown(self) -> str:
         header = [f"# {self.title or 'Job posting'}"]
@@ -160,6 +163,13 @@ def _greenhouse(url: str, client: httpx.Client) -> Optional[Posting]:
 
 
 def fetch(url: str) -> Posting:
+    # Ashby, Greenhouse, Lever and Workday publish the posting themselves, and a
+    # captured URL is usually the application form rather than the description.
+    # Ask the board before reading any page (upstream e2c600b).
+    from . import boards
+    found = boards.posting(url)
+    if found is not None:
+        return found
     with httpx.Client(
         follow_redirects=True,
         timeout=TIMEOUT,
