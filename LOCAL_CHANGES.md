@@ -411,3 +411,10 @@ and the only Submitted button needed a filled job. `POST /review/{id}/submitted`
 with `manual: true` marks a job submitted from any state but submitted, noted
 as the person's own application; the page offers "I submitted it myself" on
 every job not yet submitted. It feeds the outcome tracking like any submission.
+
+## 2026-10-23 — The job's buttons sit under its title, main action first
+
+Intent: "so that I don't need to travel all the way to the right-bottom corner".
+The decision bar (Apply / Open the filled form / Try again, then the rest) is
+moved under the job's title on the left and stays at the top while the page
+scrolls, once per job; the duplicate Delete on stopped jobs is gone.

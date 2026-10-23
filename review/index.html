@@ -308,20 +308,23 @@
   input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
   input[type="file"]:focus-visible + .hint, .filepick:has(+ input:focus-visible) { outline: 2px solid var(--focus); }
 
-  /* The floating decision. Big, bottom right, only on jobs waiting on you. */
-  .fab { position: fixed; right: 20px; bottom: 20px; z-index: 10; display: flex; gap: .6rem; align-items: center; }
-  /* With a note box, the bar stacks: the box above the decision. */
-  .fab:has(.ask) { flex-direction: column; align-items: flex-end; }
+  /* The decision bar: under the job's title, on the left, the main action
+     first, and it stays at the top while the page scrolls (2026-10-23: "so I
+     don't need to travel all the way to the right-bottom corner"). */
+  .fab { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: .6rem; align-items: center;
+         justify-content: flex-start; background: var(--bg); padding: .6rem 0 .8rem; margin: 0 0 .8rem;
+         border-bottom: 2px solid var(--line); }
+  .fab:has(.ask) { align-items: flex-start; }
   .fab .decide { display: flex; gap: .6rem; align-items: center; }
   .fab button { font: inherit; cursor: pointer; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
-  .fab .big { font-size: 18px; background: var(--green); color: #fff; border: 3px solid var(--ink);
-              padding: 1.05rem 1.9rem; box-shadow: 6px 6px 0 var(--ink); }
+  .fab .big { font-size: 15px; background: var(--green); color: #fff; border: 3px solid var(--ink);
+              padding: .7rem 1.4rem; box-shadow: 4px 4px 0 var(--ink); }
   .fab .big:active { transform: translate(3px, 3px); box-shadow: 3px 3px 0 var(--ink); }
   .fab .small { font-size: 11px; background: var(--bg); color: var(--ink); border: 2px solid var(--ink); padding: .7rem 1rem; }
   .fab .small.danger { color: var(--red); border-color: var(--red); }
   .fab button:disabled { opacity: .45; cursor: not-allowed; }
   /* The note box: a slot until touched, then a proper box with its button. */
-  .fab .ask { display: flex; flex-direction: column; gap: .4rem; align-items: flex-end; align-self: stretch; }
+  .fab .ask { display: flex; flex-direction: column; gap: .4rem; align-items: flex-start; }
   .fab .ask textarea { width: 100%; min-width: 14rem; min-height: 0; height: 2.6rem; padding: .6rem .7rem; resize: none;
     font-size: 12px; background: var(--bg); border: 2px solid var(--line); transition: width .15s, height .15s; }
   .fab .ask .small { display: none; }
@@ -1303,33 +1306,36 @@ async function show(id) {
 
     ${reviewable ? `
       <div class="fab">
+        <div class="decide">
+          <button class="big act" id="approve" title="Approves the documents and fills the form. It stops on the filled form; you press Submit.">Apply</button>
+          <button class="small act" id="submittedManual" title="You applied on the employer's site yourself; it is tracked as submitted">I submitted it myself</button>
+          <button class="small danger act" id="reject">Reject</button>
+          <button class="small danger act" id="deleteJob">Delete…</button>
+        </div>
         <div class="ask">
           <textarea id="instruction" rows="1" placeholder="Ask for a change…"></textarea>
           <button class="small act" id="revise">Re-tailor</button>
         </div>
-        <div class="decide">
-          <button class="small danger act" id="reject">Reject</button>
-          <button class="small danger act" id="deleteJob">Delete…</button>
-          <button class="small act" id="submittedManual" title="You applied on the employer's site yourself; it is tracked as submitted">I submitted it myself</button>
-          <button class="big act" id="approve" title="Approves the documents and fills the form. It stops on the filled form; you press Submit.">Apply</button>
-        </div>
       </div>` : ""}
     ${filled ? `
       <div class="fab">
+        <button class="big act" id="showForm" title="Brings the filled form's tab to the front with its Submit button in view">Open the filled form</button>
+        <button class="small act" id="submitted">I submitted it</button>
+        <button class="small act" id="fillNow">Fill again</button>
         <button class="small danger act" id="reject">Reject</button>
         <button class="small danger act" id="deleteJob">Delete…</button>
-        <button class="small act" id="fillNow">Fill again</button>
-        <button class="small act" id="submitted">I submitted it</button>
-        <button class="big act" id="showForm" title="Brings the filled form's tab to the front with its Submit button in view">Open the filled form</button>
       </div>` : ""}
     ${stopped ? `
       <div class="fab">
-        <button class="small danger act" id="deleteJob">Delete…</button>
         <button class="big act" id="retry" title="${data.tailored
           ? "Start the fill again on the documents already here"
           : "Tailor it again from the posting, then back to you at checkpoint 1"}">Try again</button>
       </div>` : ""}
   `;
+
+  // The bar is drawn last in the template; it belongs under the title.
+  const bar = $("detail").querySelector(".fab"), title = $("detail").querySelector(".head");
+  if (bar && title) title.after(bar);
 
   if ($("approve")) $("approve").onclick = () => approve(id);
   if ($("reject")) $("reject").onclick = () => openReject(id);
