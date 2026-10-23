@@ -87,9 +87,9 @@ def mail(msg_id, in_reply_to="", body="Hi Pavan, thanks for reaching out.", send
 def test_only_answers_to_our_mail_are_read_and_nothing_is_marked_read():
     body = ("Hi Pavan, Thanks for reaching out. I am forwarding your resume to the hiring team.\n\n"
             "On Mon, Oct 19, 2026 at 2:22 PM Pavan wrote:\n> I hope this catches you at a better time")
-    imap = FakeImap([mail("<news@x>"), mail("r1@globex", "<first@me>", body)])
+    imap = FakeImap([mail("<news@x>"), mail("<r1@globex>", "<first@me>", body)])
     found = replies.find({"<first@me>"}, imap=imap)
-    assert [f.message_id for f in found] == ["r1@globex"]
+    assert [f.message_id for f in found] == ["<r1@globex>"]
     assert found[0].answers == "<first@me>" and found[0].text.endswith("forwarding your resume to the hiring team.")
     assert ("select", "INBOX", True) in imap.calls
     assert all("PEEK" in call[1] for call in imap.calls if call[0] == "fetch")
@@ -124,7 +124,7 @@ def test_jev_decides_the_verdict_and_the_text_model_writes_why(monkeypatch):
 # -------------------------------------------------------------- watcher --
 def test_a_reply_is_recorded_once_and_announced_once_with_its_win_number(tmp_path, monkeypatch):
     job, _, morgan, first = job_with_sent(tmp_path)
-    found = replies.Found("r1@globex", "<first@me>", "Morgan <morgan@globex.com>", "Re: ...",
+    found = replies.Found("<r1@globex>", "<first@me>", "Morgan <morgan@globex.com>", "Re: ...",
                           ago(hours=1), "I am forwarding your resume to the hiring team.")
     own = replies.Found("<mine@me>", "<first@me>", "Me <me@gmail.com>", "Re: ...", ago(hours=1), "my own copy")
     classify = lambda text, role: judge.Verdict("positive", "Forwarding resume to hiring team shows interest.")
