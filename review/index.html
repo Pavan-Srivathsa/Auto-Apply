@@ -2241,6 +2241,7 @@ const Scout = (() => {
     const d = new Date(iso); const mins = Math.round((d - Date.now()) / 60000);
     if (Math.abs(mins) < 60) return mins <= 0 ? `${-mins} min ago` : `in ${mins} min`;
     const h = Math.round(mins / 60);
+    if (Math.abs(h) >= 48) { const d = Math.round(h / 24); return d <= 0 ? `${-d} days ago` : `in ${d} days`; }
     return h <= 0 ? `${-h} h ago` : `in ${h} h`;
   }
 
@@ -2361,7 +2362,7 @@ const Scout = (() => {
       <div class="card"><table class="kv srcs">${ws.map((w) => `<tr data-watch="${w.id}">
           <td><b>${escape(w.company)}</b> <span class="hint">${escape(sourceLabel(w))}</span></td>
           <td>${w.broken ? '<span class="broken">Broken</span>' : !w.enabled ? "paused" : `${w.last_matching} at your level of ${w.last_total}`}</td>
-          <td class="hint">${escape(kind(w))} · next ${escape(fmt(w.next_check))}</td></tr>`).join("")}</table></div>
+          <td class="hint">${escape(kind(w))}${w.every_days ? ` · every ${w.every_days} days` : ""} · next ${escape(fmt(w.next_check))}</td></tr>`).join("")}</table></div>
       <details class="wsettings"><summary>Add a website</summary>${form}</details>
       <details class="wsettings"><summary>Schedule and mail</summary>${schedule}</details>`;
   }
@@ -2457,7 +2458,8 @@ const Scout = (() => {
           <tr><td>Referrer</td><td><textarea id="wRef" rows="1" style="min-height:2.2rem">${escape(w.referrer)}</textarea></td></tr>
           <tr><td>Title must have one of</td><td><textarea id="wPos" rows="2">${escape(w.positive.join(", "))}</textarea></td></tr>
           <tr><td>and none of</td><td><textarea id="wNeg" rows="2">${escape(w.negative.join(", "))}</textarea></td></tr>
-          <tr><td>Checks per day</td><td><input class="num" id="wFreq" type="number" min="1" max="48" value="${w.checks_per_day || ""}" placeholder="${w.checks_per_day_effective}"> <span class="hint">blank = the global ${state.checks_per_day}</span></td></tr>
+          <tr><td>Checks per day</td><td><input class="num" id="wFreq" type="number" min="1" max="48" value="${w.checks_per_day || ""}" placeholder="${w.checks_per_day_effective}"> <span class="hint">blank = the global ${state.checks_per_day}</span>
+            · or once every <input class="num" id="wEvery" type="number" min="0" max="30" value="${w.every_days || ""}" placeholder="–"> days <span class="hint">(overrides checks per day; blank = off)</span></td></tr>
         </table>
         <div class="actions">
           <button class="act primary" id="wSave">Save</button>
@@ -2587,7 +2589,8 @@ const Scout = (() => {
       const lists = (id) => $(id).value.split(",").map((x) => x.trim()).filter(Boolean);
       $("wSave").onclick = () => call(`/scout/watch/${w.id}`, { method: "PATCH", body: JSON.stringify({
         query: $("wQuery").value.trim(), notify: $("wNotify").checked, us_only: $("wUs").checked, referrer: $("wRef").value.trim(), positive: lists("wPos"), negative: lists("wNeg"),
-        checks_per_day: $("wFreq").value ? Number($("wFreq").value) : null }) }, $("wNote"), async () => { await refresh(); render(); });
+        checks_per_day: $("wFreq").value ? Number($("wFreq").value) : null,
+        every_days: $("wEvery").value ? Number($("wEvery").value) : 0 }) }, $("wNote"), async () => { await refresh(); render(); });
       $("wVerify").onclick = () => call(`/scout/watch/${w.id}/verify`, { method: "POST" }, $("wNote"), async (out) => {
         await refresh(); render();
         $("wNote").textContent = out.ok ? `${out.total} listed, ${out.matching} at your level` + (out.sample.length ? `: ${out.sample.slice(0, 3).join(" · ")}` : "") : out.error; });

@@ -64,6 +64,8 @@ def checks_per_day(watch: Watch) -> int:
 
 
 def interval(watch: Watch) -> float:
+    if watch.every_days:
+        return 86400.0 * watch.every_days
     return 86400.0 / checks_per_day(watch)
 
 

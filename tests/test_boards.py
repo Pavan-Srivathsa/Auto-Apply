@@ -86,3 +86,13 @@ def test_a_region_that_includes_the_us_is_a_us_place():
     from scout import filter as level
     assert not level.outside_us("Remote (North America)") and not level.outside_us("Remote - Americas")
     assert level.outside_us("Remote (Europe)")
+
+
+def test_a_watch_can_be_checked_once_every_n_days():
+    from datetime import datetime, timedelta, timezone
+    from scout import Watch, run
+    now = datetime(2026, 10, 22, tzinfo=timezone.utc)
+    w = Watch(url="https://boards.greenhouse.io/spacex", provider="greenhouse", every_days=7,
+              last_checked=(now - timedelta(days=3)).isoformat())
+    assert run.interval(w) == 7 * 86400 and not run.due(w, now)
+    assert run.due(w.model_copy(update={"last_checked": (now - timedelta(days=8)).isoformat()}), now)

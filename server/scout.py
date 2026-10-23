@@ -35,6 +35,7 @@ class WatchUpdate(BaseModel):
     us_only: Optional[bool] = None
     referrer: Optional[str] = None
     checks_per_day: Optional[int] = None
+    every_days: Optional[int] = None    # 0 clears it
     enabled: Optional[bool] = None
     positive: Optional[list[str]] = None
     negative: Optional[list[str]] = None
@@ -131,6 +132,10 @@ def update_watch(watch_id: str, req: WatchUpdate) -> dict:
     fields = {k: v for k, v in req.model_dump().items() if v is not None}
     if "checks_per_day" in fields and not 1 <= fields["checks_per_day"] <= 48:
         raise HTTPException(400, "checks per day: 1 to 48")
+    if "every_days" in fields:
+        if not 0 <= fields["every_days"] <= 30:
+            raise HTTPException(400, "every N days: 1 to 30, or 0 to go back to checks per day")
+        fields["every_days"] = fields["every_days"] or None
     watch = store.update_watch(watch_id, **fields)
     if watch is None:
         raise HTTPException(404, "no such watch")

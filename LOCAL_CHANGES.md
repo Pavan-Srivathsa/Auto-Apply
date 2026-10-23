@@ -369,3 +369,9 @@ met). Each card shows its "% match" and its sources as labels. Filters for
 Best fit / Stretch / Checking / Not a fit / All and a search box sit above it.
 The websites are one table under Sources, where the add form and schedule
 are folded; a website's own settings open from there.
+
+## 2026-10-22 — A watch can be checked once every N days; SpaceX weekly
+
+Intent: "keep SpaceX once a week". `Watch.every_days` overrides checks per
+day (1 to 30; 0 or blank turns it off), set in a watch's Settings fold and
+shown in the Sources table. SpaceX's board is set to every 7 days.

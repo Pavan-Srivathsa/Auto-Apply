@@ -90,6 +90,7 @@ class Watch(BaseModel):
     positive: list[str] = Field(default_factory=lambda: list(DEFAULT_POSITIVE))
     negative: list[str] = Field(default_factory=lambda: list(DEFAULT_NEGATIVE))
     checks_per_day: Optional[int] = None       # None = the global setting
+    every_days: Optional[int] = None           # check once every N days instead (SpaceX: weekly, 2026-10-22)
     enabled: bool = True
     notify: bool = False                       # True: list and mail only, the person asks for a referral; False: hits go into autopilot
     us_only: bool = True                       # drop roles whose location names another country before anything else
