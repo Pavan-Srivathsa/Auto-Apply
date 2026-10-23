@@ -329,3 +329,11 @@ its tokens and dollars to `data/usage.json` by day and provider (counts only).
 `/system/metrics` and the Insights tab's System view show Scout coverage and
 broken boards, roles scored, the bullet reviewer's verdicts, escalations and
 reverts, model usage and cost, enrichment use and outreach delivery.
+
+## 2026-10-22 — Lenny's single-select category filter
+
+Intent: the Lenny's watch went BROKEN ("'Job category' has no option
+'Engineering (Software)' (it lists [])"). The site made the category a
+single-select list of plain buttons, defaulting to Product Management. The
+reader now presses the wanted option and checks the trigger reads it back;
+the checkbox path stays for Level.

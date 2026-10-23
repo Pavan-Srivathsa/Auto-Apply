@@ -81,6 +81,23 @@ FILTER_JS = """(label) => {
 OPTIONS_JS = ("[...document.querySelectorAll('[role=dialog] button[role=checkbox]')].map(e => "
               "e.getAttribute('aria-label') || ((e.closest('li') || e).innerText || '').trim().split('\\n')[0].trim())")
 
+# The category filter became single-select (2026-10-22): plain buttons in a
+# list, one press picks one, and the trigger then shows the choice.
+CHOICES_JS = ("[...document.querySelectorAll('[role=dialog] li button')].map(e => "
+              "(e.innerText || '').trim().split('\\n')[0].trim()).filter(Boolean)")
+CHOICE_RECT_JS = """(label) => {
+  const e = [...document.querySelectorAll('[role=dialog] li button')]
+    .find(x => (x.innerText || '').trim().split('\\n')[0].trim() === label);
+  if (!e) return null;
+  e.scrollIntoView({block: 'center', behavior: 'instant'});
+  const r = e.getBoundingClientRect();
+  return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+}"""
+TRIGGER_JS = """(label) => {
+  const e = [...document.querySelectorAll('button')].find(x => x.innerText.trim().startsWith(label));
+  return e ? e.innerText.trim() : '';
+}"""
+
 SHOW_MORE_JS = """(() => {
   const rows = document.querySelectorAll('a[href*="utm_source=lennysjobs"]');
   const last = rows[rows.length - 1];
@@ -183,6 +200,12 @@ async def _set_filter(page, button: str, keep: list[str]) -> None:
             break
         await asyncio.sleep(2.0)
         opened = await page.evaluate(f"({FILTER_JS})({json.dumps(button)})") or opened
+    if not options and len(keep) == 1:
+        choices = await page.evaluate(CHOICES_JS)
+        if keep[0] in choices:
+            await _choose_one(page, button, keep[0])
+            return
+        raise RuntimeError(f"Lenny's Jobs '{button}' has no option {keep[0]!r} (it lists {choices})")
     for wanted in keep:
         if wanted not in options:
             raise RuntimeError(f"Lenny's Jobs '{button}' has no option {wanted!r} (it lists {options})")
@@ -193,6 +216,23 @@ async def _set_filter(page, button: str, keep: list[str]) -> None:
             await asyncio.sleep(0.6)
     await _escape(page)
     await asyncio.sleep(1.0)
+
+
+async def _choose_one(page, button: str, wanted: str) -> None:
+    """A single-select filter: press the option, then check the trigger now
+    names it, since a press that missed would quietly list the wrong jobs."""
+    spot = await page.evaluate(f"({CHOICE_RECT_JS})({json.dumps(wanted)})")
+    for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
+        await page.send("Input.dispatchMouseEvent", {"type": kind, "x": spot["x"], "y": spot["y"],
+                                                     "button": "left", "clickCount": 1})
+    for _ in range(10):
+        await asyncio.sleep(0.5)
+        if wanted in await page.evaluate(f"({TRIGGER_JS})({json.dumps(button)})"):
+            break
+    else:
+        raise RuntimeError(f"Lenny's Jobs '{button}' did not take {wanted!r}")
+    await _escape(page)
+    await asyncio.sleep(1.5)
 
 
 async def _set_posted(page, when: str) -> None:

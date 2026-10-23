@@ -234,3 +234,40 @@ def test_a_skipped_company_is_never_listed_or_queued_from_lennys_itself(monkeypa
     result = run.check(store.get_watch(watch.id))
     assert result["new"] == 0 and result["matching"] == 1                     # Beta skipped, Acme already seen
     assert [r["title"] for r in store.get_watch(watch.id).listed] == ["Software Engineer, New Grad"]
+
+
+def test_a_single_select_category_is_picked_and_read_back(monkeypatch):
+    """Lenny's category filter became single-select buttons (2026-10-22): the
+    reader presses the one wanted and checks the trigger names it."""
+    import asyncio
+    from scout import lennys
+
+    class Page:
+        def __init__(self, takes=True):
+            self.pressed, self.takes = False, takes
+
+        async def evaluate(self, js):
+            if js == lennys.OPTIONS_JS:
+                return []
+            if js == lennys.CHOICES_JS:
+                return ["Engineering (Software)", "Product Management"]
+            if lennys.TRIGGER_JS in js:
+                return "Job category\nEngineering (Software)" if self.pressed and self.takes else "Job category\nProduct Management"
+            return {"x": 1, "y": 1}
+
+        async def send(self, method, params=None):
+            if params and params.get("type") == "mouseReleased" and getattr(self, "_opened", False):
+                self.pressed = True
+            if params and params.get("type") == "mouseReleased":
+                self._opened = True
+
+    async def no_wait(_):
+        return None
+    monkeypatch.setattr(lennys.asyncio, "sleep", no_wait)
+    page = Page()
+    asyncio.run(lennys._set_filter(page, "Job category", ["Engineering (Software)"]))
+    assert page.pressed
+    with pytest.raises(RuntimeError, match="did not take"):
+        asyncio.run(lennys._set_filter(Page(takes=False), "Job category", ["Engineering (Software)"]))
+    with pytest.raises(RuntimeError, match="has no option"):
+        asyncio.run(lennys._set_filter(Page(), "Job category", ["Design"]))
