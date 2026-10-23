@@ -148,6 +148,20 @@
   .fit .level { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-top: .3rem; }
   .fit .level.missing { color: var(--red); } .fit .level.partly { color: var(--warn, #b8860b); } .fit .level.meets { color: var(--green); }
   .fit .why { display: block; color: var(--muted); font-size: 12px; margin-top: .2rem; }
+  /* Scout's one list: band filters and source chips. */
+  .bands { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .2rem 0 .8rem; }
+  .bands .band { border: 2px solid var(--line); background: var(--bg); color: var(--ink); padding: .25rem .6rem; font: inherit; font-size: 13px; cursor: pointer; }
+  .bands .band.on { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+  .bands .band b { font-variant-numeric: tabular-nums; margin-left: .2rem; }
+  .bands input[type=search] { flex: 1; min-width: 12rem; padding: .3rem .5rem; font: inherit; font-size: 13px; background: var(--bg); color: var(--ink); border: 2px solid var(--line); }
+  .job { display: grid; grid-template-columns: 1fr auto; gap: .2rem 1rem; align-items: start; }
+  .job .t a { color: var(--ink); text-decoration: none; } .job .t a:hover { text-decoration: underline; }
+  .job .go { grid-row: 1 / span 3; grid-column: 2; align-self: center; }
+  .job .fitline { margin-top: .25rem; }
+  .fitline .score { display: inline-block; min-width: 5.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .src-chip { display: inline-block; border: 1px solid var(--line); padding: 0 .35rem; margin-left: .35rem; font-size: 11px; color: var(--muted); }
+  .hit .company { color: var(--muted); margin-left: .35rem; font-size: 13px; }
+  table.srcs tr { cursor: pointer; } table.srcs tr:hover td { background: var(--line); }
   /* The ML/DS bullet review: each rewritten bullet against its own source. */
   .breview .row { border-top: 1px solid var(--line); padding: .55rem 0; font-size: 13px; display: grid; grid-template-columns: 5.5rem 1fr; gap: .2rem .8rem; }
   .breview .verdict { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
@@ -2199,7 +2213,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) poll
 // kind; a watch whose page cannot be read is BROKEN in red.
 const Scout = (() => {
   let state = null;     // GET /scout
-  let viewing = "notify";   // "notify" = the notification hits (the opening view), null = the autopilot hits, else a watch id
+  let viewing = "jobs";     // "jobs" (the opening view), "referrals", "sources", else a watch id opened from Sources
   let busy = false;
 
   async function open() { await refresh(); render(); }
@@ -2212,9 +2226,13 @@ const Scout = (() => {
     if (busy || view !== "scout") return;
     await refresh();
     renderNav();
-    // Hits can appear at any time; redraw the list only when the count moved.
+    // Hits and fits arrive at any time; redraw only when something moved, and
+    // never under the person's cursor in the search box.
     const shown = $("detail").dataset.hits;
-    if (shown !== undefined && shown !== String(state.hits.length)) render();
+    const sig = allJobs().map((j) => j.band).join("");
+    const moved = (shown !== undefined && shown !== String(state.hits.length)) || $("detail").dataset.sig !== sig;
+    $("detail").dataset.sig = sig;
+    if (moved && document.activeElement?.id !== "jobSearch") render();
   }
 
   function fmt(iso) {
@@ -2228,42 +2246,126 @@ const Scout = (() => {
 
   function tone(w) { return w.broken ? "stop" : !w.enabled ? "done" : "agent"; }
 
+  // One list of jobs from every source, merged and ranked by fit; the source
+  // is a label on the job, not a page of its own (2026-10-22: "just show me the
+  // best-fit jobs"). The websites themselves live under Sources.
+  const BANDS = [["best", "Best fit"], ["stretch", "Stretch"], ["checking", "Checking"], ["poor", "Not a fit"], ["all", "All"]];
+  let band = (() => { try { return localStorage.getItem("scoutBand") || "best"; } catch (_) { return "best"; } })();
+  let search = "";
+
+  function bandOf(fit) {
+    const v = (fit && fit.verdict) || "";
+    return v === "qualified" ? "best" : v === "stretch" ? "stretch" : v === "" ? "checking" : "poor";
+  }
+
+  function sourceLabel(w) {
+    if (w.args && w.args.curated) return "AI startups";
+    if (["lennys", "a16z", "yc"].includes(w.provider)) return w.company;
+    return `${w.provider} board`;
+  }
+
+  // Every listed role once: the same job on Lenny's and on the company's own
+  // board is one row with both sources on it.
+  function allJobs() {
+    const queued = new Set((state.hits || []).filter((h) => h.status === "queued").map((h) => `${h.watch_id}|${h.posting.id}`));
+    const merged = new Map();
+    for (const w of state.watches || []) {
+      for (const r of w.listed || []) {
+        const company = r.company || w.company;
+        const key = `${company}|${r.title}`.toLowerCase().replace(/[^a-z0-9|]+/g, " ").trim();
+        const row = merged.get(key) || { ...r, company, sources: [], adds: [], queued: false };
+        row.sources.push(sourceLabel(w));
+        row.adds.push({ watch: w.id, id: r.id });
+        row.queued = row.queued || queued.has(`${w.id}|${r.id}`);
+        if (!row.fit && r.fit) row.fit = r.fit;
+        if ((r.posted || "") > (row.posted || "")) row.posted = r.posted;
+        merged.set(key, row);
+      }
+    }
+    return [...merged.values()].map((r) => ({ ...r, sources: [...new Set(r.sources)], band: bandOf(r.fit) }));
+  }
+
   function renderNav() {
     const ws = state?.watches || [];
-    const hits = state?.hits || [];
-    const toAsk = hits.filter((h) => h.notify && h.status === "new").length;
-    const auto = hits.filter((h) => !h.notify && h.status === "queued").length;
-    const waiting = hits.filter((h) => !h.notify && h.status === "new").length;
-    $("count").textContent = ws.length ? `${ws.length} watched · ${toAsk} to ask · ${auto} in autopilot` : "";
-    const row = (w) => `
-        <button class="row" data-id="${w.id}" data-tone="${tone(w)}" aria-current="${viewing === w.id}">
-          <span class="role">${escape(w.company)}</span>
-          <span class="cov">${w.broken ? '<span class="broken">Broken</span>' : !w.enabled ? "paused" :
-            `${w.last_matching} at level · next ${escape(fmt(w.next_check))}`}</span>
-        </button>`;
-    const autoWs = ws.filter((w) => !w.notify), notifyWs = ws.filter((w) => w.notify);
-    // Notifications first: those need the person, and the watched list
-    // below them only grows.
-    $("list").innerHTML = `<button class="row" data-view="notify" aria-current="${viewing === "notify"}" data-tone="you">
-        <span class="role">Notifications</span><span class="cov">${toAsk} to ask</span></button>` +
-      (notifyWs.length ? `<div class="group">Referral <span class="n">${notifyWs.length}</span></div>` : "") + notifyWs.map(row).join("") +
-      `<button class="row" data-view="auto" aria-current="${viewing === null}" data-tone="agent">
-        <span class="role">Autopilot</span><span class="cov">${auto} queued${waiting ? ` · ${waiting} waiting` : ""}</span></button>` +
-      (autoWs.length ? `<div class="group">Watching <span class="n">${autoWs.length}</span></div>` : "") + autoWs.map(row).join("");
-    for (const b of $("list").querySelectorAll("button[data-view]")) b.onclick = () => { viewing = b.dataset.view === "notify" ? "notify" : null; render(); };
-    for (const b of $("list").querySelectorAll("button[data-id]")) b.onclick = () => { viewing = b.dataset.id; render(); };
+    const jobs = state ? allJobs() : [];
+    const best = jobs.filter((j) => j.band === "best").length;
+    const toAsk = (state?.hits || []).filter((h) => h.notify && h.status === "new").length;
+    const broken = ws.filter((w) => w.broken).length;
+    $("count").textContent = ws.length ? `${best} best fits · ${jobs.length} open roles` : "";
+    const row = (key, label, cov, tone) => `<button class="row" data-view="${key}" data-tone="${tone}"
+        aria-current="${viewing === key || (key === "sources" && viewing && !["jobs", "referrals"].includes(viewing))}">
+        <span class="role">${label}</span><span class="cov">${cov}</span></button>`;
+    $("list").innerHTML = row("jobs", "Jobs", `${best} best fits of ${jobs.length}`, "agent")
+      + row("referrals", "Referrals", `${toAsk} to ask`, "you")
+      + row("sources", "Sources", `${ws.length} websites${broken ? ` · <span class="broken">${broken} broken</span>` : ""}`, broken ? "stop" : "done");
+    for (const b of $("list").querySelectorAll("button[data-view]")) b.onclick = () => { viewing = b.dataset.view; render(); };
   }
 
   function render() {
     renderNav();
     if (!state) return;
-    const notify = viewing === "notify";
-    const w = viewing && !notify && state.watches.find((x) => x.id === viewing);
-    if (viewing && !notify && !w) { viewing = null; }
+    const w = !["jobs", "referrals", "sources"].includes(viewing) && state.watches.find((x) => x.id === viewing);
+    if (!w && !["jobs", "referrals", "sources"].includes(viewing)) viewing = "jobs";
     $("detail").dataset.hits = state.hits.length;
-    $("detail").innerHTML = (w ? renderWatch(w) + renderListed(w) : renderTop(notify)) + renderHits(w, notify);
-    wire(w);
+    if (viewing === "jobs") $("detail").innerHTML = renderJobs();
+    else if (viewing === "referrals") $("detail").innerHTML = renderHits(null, true);
+    else if (viewing === "sources") $("detail").innerHTML = renderSources();
+    else $("detail").innerHTML = `<p><button class="act small" id="backSources">← All sources</button></p>` + renderWatch(w) + renderListed(w) + renderHits(w, w.notify);
+    wire(viewing === "jobs" || viewing === "referrals" || viewing === "sources" ? null : w);
   }
+
+  function renderJobs() {
+    const jobs = allJobs();
+    const counts = Object.fromEntries(BANDS.map(([k]) => [k, k === "all" ? jobs.length : jobs.filter((j) => j.band === k).length]));
+    const needle = search.toLowerCase();
+    const shown = byFit(jobs.filter((j) => (band === "all" || j.band === band)
+      && (!needle || `${j.title} ${j.company} ${j.location || ""} ${j.sources.join(" ")}`.toLowerCase().includes(needle))),
+      (j) => j.fit, (j) => j.posted);
+    const when = (p) => String(p || "").replace(/^posted\s+/i, "");
+    const card = (j) => `
+      <div class="hit job ${j.queued ? "done" : ""}">
+        <div class="t"><a href="${escape(j.url)}" target="_blank" rel="noopener">${escape(j.title)}</a>
+          <span class="company">${escape(j.company)}</span></div>
+        <div class="m">${escape(j.location || "")}${j.posted ? ` · ${escape(when(j.posted))}` : ""}
+          ${j.sources.map((x) => `<span class="src-chip">${escape(x)}</span>`).join("")}
+          ${j.freshness && j.freshness.label !== "open" && j.freshness.label !== "fresh" ? `<span class="src-chip" title="${escape((j.freshness.evidence || []).join("; "))}">${escape(j.freshness.label.replace("_", " "))}</span>` : ""}
+</div>
+        <div>${fitBlock(j.fit)}</div>
+        <div class="go">${j.queued ? `<span class="hint">in autopilot</span>` : `<button class="act small primary" data-add-any="${escape(JSON.stringify(j.adds[0]))}">Add</button>`}</div>
+      </div>`;
+    const LIMIT = 200;
+    return `<div class="head"><h2>Jobs</h2><span class="state agent">${counts.best} best fits</span></div>
+      <div class="bands">${BANDS.map(([k, label]) => `<button class="band ${band === k ? "on" : ""}" data-band="${k}">${label} <b>${counts[k]}</b></button>`).join("")}
+        <input type="search" id="jobSearch" placeholder="Filter by title, company, place or source" value="${escape(search)}"></div>
+      ${state.watches.some((x) => x.broken) ? `<p class="hint"><span class="broken">Broken</span> ${state.watches.filter((x) => x.broken).map((x) => escape(x.company)).join(", ")} could not be read; see Sources.</p>` : ""}
+      <div class="card">${shown.slice(0, LIMIT).map(card).join("") ||
+        `<p class="empty" style="padding:1rem">${band === "best" ? "No qualified role right now. Stretch roles are one tab over; fits are worked out in the background as roles come in." : "Nothing here."}</p>`}</div>
+      ${shown.length > LIMIT ? `<p class="hint">Showing ${LIMIT} of ${shown.length}; filter to narrow.</p>` : ""}`;
+  }
+
+  // Every website Scout reads, one line each; a click opens its settings.
+  function renderSources() {
+    const ws = [...(state.watches || [])].sort((a, b) => (b.broken - a.broken) || (b.last_matching - a.last_matching));
+    const kind = (w) => w.notify ? "referral" : w.args && w.args.hold ? "list only" : "autopilot";
+    // The add form and the schedule are what renderTop draws; here they fold
+    // away under the list of websites, which is what the view is for.
+    const top = renderTop(false);
+    const at = top.indexOf('<div class="card" style="padding:.6rem 1rem">');
+    const sched = top.indexOf("<h3>Schedule and mail</h3>");
+    const banners = top.slice(top.indexOf("</p>") + 4, at);
+    const form = top.slice(at, sched);
+    const schedule = top.slice(sched + "<h3>Schedule and mail</h3>".length);
+    return `<div class="head"><h2>Sources</h2><span class="state agent">${ws.length} websites</span></div>
+      <p class="hint">Where the jobs come from, read ${state.checks_per_day} times a day. Click one to change its search text, kind, title rules or schedule.</p>
+      ${banners}
+      <div class="card"><table class="kv srcs">${ws.map((w) => `<tr data-watch="${w.id}">
+          <td><b>${escape(w.company)}</b> <span class="hint">${escape(sourceLabel(w))}</span></td>
+          <td>${w.broken ? '<span class="broken">Broken</span>' : !w.enabled ? "paused" : `${w.last_matching} at your level of ${w.last_total}`}</td>
+          <td class="hint">${escape(kind(w))} · next ${escape(fmt(w.next_check))}</td></tr>`).join("")}</table></div>
+      <details class="wsettings"><summary>Add a website</summary>${form}</details>
+      <details class="wsettings"><summary>Schedule and mail</summary>${schedule}</details>`;
+  }
+
 
   function renderTop(notify) {
     const m = state.mail || {};
@@ -2307,11 +2409,24 @@ const Scout = (() => {
       </div>`;
   }
 
-  // Good matches on top; roles still being checked next; stretch, then
-  // not qualified, at the bottom. Newest first inside each group.
+  // Decreasing order of fit: the share of a role's required items it meets
+  // (met 1, partly a half), highest first; a role not scored yet goes last.
+  // Ties: more items met, then the verdict, then the newest posting.
+  function fitScore(fit) {
+    if (!fit || !fit.verdict) return -1;
+    const items = (fit.items || []).filter((i) => i.kind === "must");
+    const pool = items.length ? items : (fit.items || []);
+    if (!pool.length) return { qualified: 1, stretch: 0.5 }[fit.verdict] ?? 0;
+    return pool.reduce((n, i) => n + (i.level === "meets" ? 1 : i.level === "partly" ? 0.5 : 0), 0) / pool.length;
+  }
+
   function byFit(rows, fitOf, dateOf) {
-    const rank = (f) => ({ qualified: 0, "": 1, unknown: 2, stretch: 3, not_qualified: 4 })[(f && f.verdict) || ""] ?? 1;
-    return [...rows].sort((a, b) => rank(fitOf(a)) - rank(fitOf(b)) || String(dateOf(b) || "").localeCompare(String(dateOf(a) || "")));
+    const rank = (f) => ({ qualified: 0, stretch: 1, unknown: 2, not_qualified: 3 })[(f && f.verdict) || ""] ?? 4;
+    // Equal shares: more requirements met is more evidence (8 of 8 over 2 of 2).
+    const met = (f) => ((f && f.items) || []).filter((i) => i.kind === "must" && i.level === "meets").length;
+    return [...rows].sort((a, b) => fitScore(fitOf(b)) - fitScore(fitOf(a)) || met(fitOf(b)) - met(fitOf(a))
+      || rank(fitOf(a)) - rank(fitOf(b))
+      || String(dateOf(b) || "").localeCompare(String(dateOf(a) || "")));
   }
 
   // The watch's settings stay folded unless the person opened them; the
@@ -2361,7 +2476,8 @@ const Scout = (() => {
     const rows = (fit.items || []).filter((i) => i.level !== "meets").map((i) =>
       `<li><span class="lvl ${escape(i.level)}">${i.level === "missing" ? "Missing" : "Partly"}</span> ${escape(i.text)}${
         i.reason ? `<span class="why">${escape(i.reason)}</span>` : ""}</li>`).join("");
-    return `<div class="fitline ${escape(fit.verdict)}"><strong>${label}</strong> ${escape(String(fit.summary || "").replace(/^(Qualified|Stretch|Not qualified):\s*/, ""))}
+    const score = fitScore(fit);
+    return `<div class="fitline ${escape(fit.verdict)}">${score >= 0 && fit.verdict !== "unknown" ? `<span class="score">${Math.round(score * 100)}% match</span> ` : ""}<strong>${label}</strong> ${escape(String(fit.summary || "").replace(/^(Qualified|Stretch|Not qualified):\s*/, ""))}
       ${fit.base ? `<span class="hint">· against ${escape(fit.base)}</span>` : ""}
       ${rows ? `<details><summary>Why</summary><ul class="fitwhy">${rows}</ul></details>` : ""}</div>`;
   }
@@ -2425,6 +2541,27 @@ const Scout = (() => {
   }
 
   function wire(w) {
+    for (const b of $("detail").querySelectorAll("[data-band]")) b.onclick = () => {
+      band = b.dataset.band; try { localStorage.setItem("scoutBand", band); } catch (_) {} render(); };
+    if ($("jobSearch")) $("jobSearch").oninput = (e) => {
+      search = e.target.value; const at = e.target.selectionStart; render();
+      const box = $("jobSearch"); box.focus(); box.setSelectionRange(at, at); };
+    for (const b of $("detail").querySelectorAll("[data-add-any]")) b.onclick = () => {
+      const { watch, id } = JSON.parse(b.dataset.addAny);
+      call(`/scout/watch/${watch}/add`, { method: "POST", body: JSON.stringify({ posting_id: id }) }, null, async () => { await refresh(); render(); }); };
+    for (const r of $("detail").querySelectorAll("tr[data-watch]")) r.onclick = () => { viewing = r.dataset.watch; render(); };
+    if ($("backSources")) $("backSources").onclick = () => { viewing = "sources"; render(); };
+    if (!w && !$("sAdd")) {
+      for (const b of $("detail").querySelectorAll("[data-queue]")) b.onclick = () =>
+        call(`/scout/hits/${b.dataset.queue}/queue`, { method: "POST" }, null, async () => { await refresh(); render(); });
+      for (const b of $("detail").querySelectorAll("[data-dismiss]")) b.onclick = () =>
+        call(`/scout/hits/${b.dataset.dismiss}/dismiss`, { method: "POST" }, null, async () => { await refresh(); render(); });
+      for (const b of $("detail").querySelectorAll("[data-copy]")) b.onclick = () => {
+        const hit = state.hits.find((h) => h.id === b.dataset.copy);
+        navigator.clipboard?.writeText(hit.note).then(() => { b.textContent = "Copied"; }); };
+      for (const b of $("detail").querySelectorAll("[data-open]")) b.onclick = () => { location.hash = b.dataset.open; switchView("jobs"); };
+      return;
+    }
     if (!w) {
       $("sAdd").onclick = () => {
         const url = $("sUrl").value.trim();
@@ -2461,9 +2598,9 @@ const Scout = (() => {
         $("wNote").textContent = out.ok ? `${out.new} new` + (out.mail?.sent ? ", mailed" : "") : out.error; });
       $("wPause").onclick = () => call(`/scout/watch/${w.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !w.enabled }) }, $("wNote"), async () => { await refresh(); render(); });
       $("wDel").onclick = () => { if (confirm(`Stop watching ${w.company}? Its hits go too.`))
-        call(`/scout/watch/${w.id}`, { method: "DELETE" }, $("wNote"), async () => { viewing = null; await refresh(); render(); }); };
+        call(`/scout/watch/${w.id}`, { method: "DELETE" }, $("wNote"), async () => { viewing = "sources"; await refresh(); render(); }); };
     }
-    for (const b of $("detail").querySelectorAll("[data-add]")) b.onclick = () =>
+    for (const b of $("detail").querySelectorAll("[data-add]")) b.onclick = () => w &&
       call(`/scout/watch/${w.id}/add`, { method: "POST", body: JSON.stringify({ posting_id: b.dataset.add }) }, null, async () => { await refresh(); render(); });
     for (const b of $("detail").querySelectorAll("[data-queue]")) b.onclick = () =>
       call(`/scout/hits/${b.dataset.queue}/queue`, { method: "POST" }, null, async () => { await refresh(); render(); });

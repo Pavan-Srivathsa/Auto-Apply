@@ -357,3 +357,15 @@ still being checked, then stretch, then not qualified; newest first inside
 each. The Settings fold remembers whether it was opened. And "why did 11x not
 work": its watch read, but Gem's job pages draw their text in JavaScript, so
 every fit was "unknown". `tailor/boards.py` reads a Gem posting from its API.
+
+## 2026-10-22 — Scout is one list of jobs in decreasing order of fit
+
+Intent: "just show me the best-fit jobs... I don't need a separate tab to know
+which website it's coming from", then "arrange in decreasing order of fit".
+The Scout tab opens on one list of every listed role from every source,
+merged (one job on Lenny's and its own board is one row) and sorted by the
+share of its required items met (met 1, partly a half; ties go to more items
+met). Each card shows its "% match" and its sources as labels. Filters for
+Best fit / Stretch / Checking / Not a fit / All and a search box sit above it.
+The websites are one table under Sources, where the add form and schedule
+are folded; a website's own settings open from there.
