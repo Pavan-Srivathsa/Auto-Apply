@@ -145,6 +145,25 @@ def start_fill(job_id: str, log_dir: Optional[Path] = None) -> Optional[int]:
     return launch("apply.py", job_id, log_dir)
 
 
+def stop_pipeline(job_id: str) -> Optional[int]:
+    """Kill a pipeline.py running for this job (a Try again is a restart)."""
+    try:
+        out = subprocess.run(["pgrep", "-f", f"pipeline.py {job_id}$"], capture_output=True,
+                             text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    pids = [int(p) for p in out.split() if p.isdigit() and int(p) != os.getpid()]
+    for pid in pids:
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+    return pids[0] if pids else None
+
+
 def start_pipeline(job_id: str, log_dir: Optional[Path] = None) -> Optional[int]:
     """Tailor and compile one queued job."""
     return launch("pipeline.py", job_id, log_dir)

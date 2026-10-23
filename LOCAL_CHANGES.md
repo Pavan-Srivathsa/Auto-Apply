@@ -240,3 +240,11 @@ application form, not the description. `tailor/boards.py` (taken as is) asks
 Ashby, Greenhouse, Lever and Workday's public endpoints first; that copy wins
 outright in `pipeline.fetch_posting` (`Posting.authoritative`), and a page that
 reads as a form (`quality.looks_like_form`) scores zero against the others.
+
+## 2026-10-22 — Try again on a failed or rejected job
+
+Intent: from the original repo (c38a65c), ported. A job that failed on
+"OpenRouter 402" sat on a closed shelf with no buttons. `POST /review/{id}/retry`
+stops whatever runs for it, then refills when documents exist or tailors again
+when they do not; a submitted job is refused and lifting a rejection is asked
+first. `runner.stop_pipeline` is new here.

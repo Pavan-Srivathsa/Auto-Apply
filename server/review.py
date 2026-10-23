@@ -173,6 +173,9 @@ def detail(job_id: str) -> dict:
         "diff": read("resume.diff"),
         "suggestions": read("suggestions.md"),
         "mismatch": read("mismatch.md"),
+        # Are there documents to attach? Try again restarts a job that has a
+        # compiled resume at the fill, and one without at the tailor.
+        "tailored": _tailored(app_dir),
         "screen": _screen(app_dir),
         "screen_error": read("screen_error.txt"),
         "resume_source": read("resume.tex"),
@@ -810,6 +813,83 @@ def delete_job(job_id: str) -> dict:
         "folders": folders,
         "stopped_fill": stopped,
     }
+
+
+# Everything a retry may be started from: a run that fell over, a job the
+# person rejected and has changed their mind about, and the live states a run
+# can die in the middle of. SUBMITTED is the one that is not here - the
+# application has gone, the row is the record of it, and the way to work on
+# it again is the thread's re-tailor.
+RETRYABLE = (Status.QUEUED, Status.TAILORING, Status.AWAITING_REVIEW,
+             Status.APPROVED, Status.FILLING, Status.FILLED, Status.FAILED,
+             Status.SKIPPED)
+
+
+@router.post("/{job_id}/retry")
+def retry(job_id: str) -> dict:
+    """Start this job again from wherever it has nothing.
+
+    A job can stop for a reason that has nothing to do with the job: the key
+    ran out of credit (`OpenRouter returned 402: Insufficient credits`, which
+    is what prompted this), a fetch timed out, the socket dropped. The row
+    went to `failed`, which lives on a closed shelf with no buttons on it, so
+    a perfectly good posting was unreachable - there was nothing to press
+    (2026-10-09, asked for).
+
+    From the top means from the first step that has nothing to show:
+
+    - no `resume.pdf` in the folder, so there is nothing to attach: the
+      pipeline runs again, which screens, fetches, tailors and compiles, and
+      the job comes back to checkpoint 1 for the person as usual.
+    - documents already there: the fill runs again instead, because
+      re-tailoring a resume that compiled is spending a model call to get the
+      same thing twice.
+
+    A retry is a restart, so whatever is still running for this job is
+    stopped first. Nothing here submits, nothing is approved on the person's
+    behalf past checkpoint 1 that was not approved before, and the fill goes
+    through `runner.start_fill`, which runs one fill per job.
+    """
+    job, app_dir = _job_and_dir(job_id)
+    if job.status == Status.SUBMITTED:
+        raise HTTPException(409, "this application has been submitted; "
+                                 "ask for a change in the thread instead")
+    if job.status not in RETRYABLE:
+        raise HTTPException(409, f"job is {job.status.value} and cannot be retried")
+
+    was = job.status.value
+    note = f"retried from {was}"
+    killed = runner.stop_fill(job_id)
+    if killed:
+        note += f" (fill {killed} stopped)"
+    tailoring = runner.stop_pipeline(job_id)
+    if tailoring:
+        note += f" (tailoring {tailoring} stopped)"
+    # The rejection is lifted, because the job is being tried again: a row
+    # still carrying "poor fit" while it tailors says two things at once.
+    if job.reject_reason or job.reject_note:
+        note += " (rejection lifted)"
+
+    if _tailored(app_dir):
+        # `apply.py` only touches an approved job, and the error has to go
+        # with it: a rerun that works still shows the old failure otherwise.
+        store.set_status(app_dir, Status.APPROVED, note)
+        queue.update(job_id, status=Status.APPROVED, error=None,
+                     reject_reason=None, reject_note=None)
+        pid = runner.start_fill(job_id)
+        if pid:
+            store.set_status(app_dir, Status.APPROVED, f"filling started (pid {pid})")
+        return {"id": job_id, "was": was, "step": "fill", "status": Status.APPROVED.value,
+                "filling": bool(pid), "pid": pid, "killed": killed}
+
+    store.set_status(app_dir, Status.QUEUED, f"{note}; tailoring again")
+    queue.update(job_id, status=Status.QUEUED, error=None,
+                 reject_reason=None, reject_note=None)
+    pid = runner.start_pipeline(job_id)
+    if not pid:
+        raise HTTPException(500, "could not start pipeline.py")
+    return {"id": job_id, "was": was, "step": "tailor", "status": Status.QUEUED.value,
+            "filling": False, "pid": pid, "killed": killed}
 
 
 @router.get("/meta/reject-reasons")

@@ -831,6 +831,9 @@ async function show(id) {
 
   const reviewable = data.status === "awaiting_review";
   const filled = data.status === "filled";
+  // A job stops for reasons that have nothing to do with the job (the key out
+  // of credit, a fetch that timed out), and a closed shelf had no buttons.
+  const stopped = ["failed", "skipped"].includes(data.status);
   // A fill that started under WORKING_GRACE seconds ago gets no buttons: the
   // agent is working and the only honest thing to show is that. After the
   // grace the restart button comes back, gated behind a confirm.
@@ -1037,6 +1040,13 @@ async function show(id) {
         <button class="small act" id="fillNow">Fill again</button>
         <button class="big act" id="submitted">I submitted it</button>
       </div>` : ""}
+    ${stopped ? `
+      <div class="fab">
+        <button class="small danger act" id="deleteJob">Delete…</button>
+        <button class="big act" id="retry" title="${data.tailored
+          ? "Start the fill again on the documents already here"
+          : "Tailor it again from the posting, then back to you at checkpoint 1"}">Try again</button>
+      </div>` : ""}
   `;
 
   if ($("approve")) $("approve").onclick = () => approve(id);
@@ -1059,6 +1069,7 @@ async function show(id) {
     };
   }
   if ($("fillNow")) $("fillNow").onclick = () => fillAgain(id, "jobright_check");
+  if ($("retry")) $("retry").onclick = () => retry(id, data);
   if ($("fillAutopilot")) $("fillAutopilot").onclick = () => fillAgain(id, "autopilot");
   if ($("fillJobright")) $("fillJobright").onclick = () => fillAgain(id, "jobright_check");
   if ($("reveal")) wireReveal(id);
@@ -1707,6 +1718,16 @@ function wireReveal(id) {
         : r.note || `Opened ${r.folder}.`;
     } catch (err) { note.textContent = err.message || "Finder would not open"; }
   };
+}
+
+// Start a stopped job again; the server picks the step (documents there means
+// the fill, none means the tailor). Lifting a rejection is asked first.
+async function retry(id, data) {
+  if (data && data.status === "skipped") {
+    const why = data.reject_note || data.reject_reason || "no reason recorded";
+    if (!confirm(`You rejected this job (${why}).\n\nTrying again lifts that and starts it over. Continue?`)) return;
+  }
+  await act(id, () => api(`/review/${id}/retry`, { method: "POST", body: "{}" }));
 }
 
 async function fillAgain(id, mode) {
