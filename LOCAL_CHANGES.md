@@ -305,3 +305,19 @@ the questions each answers, and keeps a story a draft until the person
 confirms it. Roles with no story get drafts made only of resume bullets.
 Interview prep matches a job's requirements to stories with Jev, lists what
 nothing answers, and asks a model for practice questions only.
+
+## 2026-10-22 — Listing history, the curated AI watchlist, and leadership research
+
+Intent: the person's spec, features 5, 6 and 7. `scout/history.py` records
+every listing's state per check (NEW, ACTIVE, UPDATED, REPOSTED, RETURNED,
+POSSIBLY_STALE, CLOSED, UNVERIFIED) with the evidence: closing needs two
+complete listings without the role, a failed read closes nothing, a repost
+needs a closed twin with the same title words and time between, and age alone
+is never staleness (Career-Ops' rules, reimplemented). `scout/curated.py`
+resolves the fifty companies to their public boards, verified as theirs and
+about AI (the Greenhouse board named Galileo hires dermatologists), and makes
+held watches that list and score but never queue; a board already watched by
+hand is linked. Curated watches judge a 4-5 year ask by the fit model.
+`outreach/leaders.py` ranks the role's own engineering leaders with a reason
+and confidence from free search only; LinkedIn notes are drafts the send
+route refuses. Insights gains Job discovery, AI startups and Monitoring history.

@@ -220,7 +220,7 @@ def needs_no_sponsor(text: str) -> bool:
     return False
 
 
-def prescreen(text: str) -> str | None:
+def prescreen(text: str, years_min: int | None = None) -> str | None:
     """Why the posting is out before a model reads it, else None. No visa
     sponsorship (checked first), years of experience at `YEARS_MIN` or more,
     a security clearance, or citizenship as a requirement. "0-2 years" and "2+ years" pass: the
@@ -232,7 +232,7 @@ def prescreen(text: str) -> str | None:
         return NO_SPONSOR
     years = [int(m.group(1)) for m in _YEARS.finditer(text)]
     years = [y for y in years if y <= 30]      # "2024 years" is a date that slipped in
-    if years and min(years) >= YEARS_MIN:
+    if years and min(years) >= (years_min or YEARS_MIN):
         return f"asks for {min(years)}+ years of experience"
     if _CLEARANCE.search(text):
         return "needs a security clearance"

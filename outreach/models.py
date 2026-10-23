@@ -31,6 +31,13 @@ class Contact(BaseModel):
     verification: Literal["verified", "guessed", "manual"] = "manual"
     email_status: str = ""
     created_at: str = Field(default_factory=now)
+    # Leadership research (outreach/leaders.py): why this person, and how sure.
+    team_alignment: str = ""        # e.g. "inference / platform"
+    related_job: str = ""
+    reason: str = ""
+    confidence: float = 0.0
+    evidence: list = Field(default_factory=list)
+    last_verified: str = ""
 
     @classmethod
     def create(cls, role: str, name: str, **values) -> "Contact":
@@ -55,6 +62,7 @@ class Draft(BaseModel):
     error: str = ""
     review: dict = Field(default_factory=dict)   # tailor.critic's score and trace; {} = not judged
     followup: int = 0                            # 0 = the first email; n = follow-up n
+    channel: str = "email"                       # email | linkedin (a LinkedIn note is copied by hand, never sent)
     reply_to: str = ""                           # the draft id this follow-up continues, in its thread
 
     @classmethod

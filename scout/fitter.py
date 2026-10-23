@@ -81,8 +81,10 @@ def fit_row(watch_id: str, company: str, row: dict) -> Optional[dict]:
     from scout import run
     fit = cached(row["url"])
     if not fit:
+        watch = store.get_watch(watch_id)
+        years = watch.args.get("years_min") if watch else None
         fit = run._fit(Posting(id=row["id"], title=row["title"], url=row["url"], location=row.get("location", "")),
-                       company)
+                       company, **({"years_min": years} if years else {}))
         if not fit:
             return None
         remember(row["url"], fit)

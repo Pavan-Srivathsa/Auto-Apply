@@ -241,3 +241,60 @@ def mail_test() -> dict:
     except mail.MailError as exc:
         raise HTTPException(400, str(exc))
     return {"sent": True, "to": mail.config()["to"]}
+
+
+# ---------------------------------------------------------- curated + history --
+# The curated agentic-AI watchlist (scout/curated.py) and every listing's
+# history (scout/history.py). The import resolves fifty boards over the
+# network, so it runs on a thread and the page polls `/curated`.
+_import_state: dict = {"running": False, "result": None}
+
+
+def _run_import() -> None:
+    from scout import curated
+    try:
+        _import_state["result"] = curated.import_all()
+    except Exception as exc:  # noqa: BLE001 - said on the page
+        _import_state["result"] = {"error": str(exc)[:200]}
+    finally:
+        _import_state["running"] = False
+
+
+@router.post("/curated/import")
+def curated_import() -> dict:
+    import threading
+    if _import_state["running"]:
+        return {"started": False, "running": True}
+    _import_state["running"] = True
+    threading.Thread(target=_run_import, daemon=True).start()
+    return {"started": True, "running": True}
+
+
+@router.get("/curated")
+def curated_view() -> dict:
+    from scout import curated
+    return curated.inventory() | {"importing": _import_state["running"], "last_import": _import_state["result"]}
+
+
+@router.get("/discovery")
+def discovery(limit: int = 300) -> dict:
+    """Every role every watch lists now, ranked by fit, with its freshness."""
+    order = {"qualified": 0, "stretch": 1, "": 2, "unknown": 3, "not_qualified": 4}
+    rows = [row | {"company": row.get("company") or w.company, "watch_id": w.id, "curated": bool(w.args.get("curated"))}
+            for w in store.watches() for row in w.listed]
+    rows.sort(key=lambda r: (order.get((r.get("fit") or {}).get("verdict", ""), 2), -(len(r.get("posted") or ""))))
+    return {"roles": rows[:limit], "total": len(rows)}
+
+
+@router.get("/history")
+def history_view(watch_id: Optional[str] = None, label: Optional[str] = None, limit: int = 300) -> dict:
+    from scout import history
+    out = []
+    for record in history.records(watch_id):
+        fresh = history.freshness(record)
+        if label and fresh["label"] != label:
+            continue
+        out.append({k: record.get(k) for k in ("id", "watch_id", "company", "title", "url", "first_seen", "last_verified",
+                                               "repost_count", "repost_of", "failures", "state")} | {"freshness": fresh})
+    out.sort(key=lambda r: r.get("last_verified") or "", reverse=True)
+    return {"summary": history.summary(), "records": out[:limit]}

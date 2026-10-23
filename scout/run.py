@@ -137,7 +137,7 @@ def verify(watch: Watch) -> dict:
     return result
 
 
-def _screen(posting: Posting, company: str) -> tuple[str, str]:
+def _screen(posting: Posting, company: str, years_min: Optional[int] = None) -> tuple[str, str]:
     """Verdict and summary: the code pre-screen first, then the on-page
     screen; ("", reason) when neither can run. A screen failure never
     loses the hit."""
@@ -150,7 +150,7 @@ def _screen(posting: Posting, company: str) -> tuple[str, str]:
         except Exception as exc:  # noqa: BLE001
             return "", f"no description: {str(exc)[:120]}"
     posting.text = text            # read once: the fit check below uses the same text
-    reason = level.prescreen(text)
+    reason = level.prescreen(text, years_min)
     if reason:
         return "reject", reason
     try:
@@ -165,7 +165,7 @@ class FitUnavailable(RuntimeError):
     again later. Unlike an unreadable posting, this says nothing about the role."""
 
 
-def _fit(posting: Posting, company: str) -> dict:
+def _fit(posting: Posting, company: str, years_min: Optional[int] = None) -> dict:
     """Am I qualified for this role, worked out in Scout (2026-10-22: "so
     that I know exactly which I'm qualified for"): the master resume the job
     would be routed to, the stories that fit it, the brief, and the
@@ -176,7 +176,7 @@ def _fit(posting: Posting, company: str) -> dict:
     qualified with no model call at all. {} when a model step fails, so the
     caller can try again later instead of recording a verdict."""
     try:
-        return fit_or_raise(posting, company)
+        return fit_or_raise(posting, company, years_min)
     except FitUnavailable as exc:
         log.warning("scout fit %s: %s", posting.url, str(exc)[:160])
         return {}
@@ -185,7 +185,7 @@ def _fit(posting: Posting, company: str) -> dict:
 UNREADABLE = {"verdict": "unknown", "summary": "The posting could not be read for a fit check."}
 
 
-def fit_or_raise(posting: Posting, company: str) -> dict:
+def fit_or_raise(posting: Posting, company: str, years_min: Optional[int] = None) -> dict:
     from tailor import brief as briefs
     from tailor import fetch, profile, qualify, resume_bases, tailor
     try:
@@ -193,7 +193,7 @@ def fit_or_raise(posting: Posting, company: str) -> dict:
     except Exception as exc:  # noqa: BLE001 - the page itself: nothing a retry fixes soon
         return UNREADABLE | {"why": f"{type(exc).__name__}: {str(exc)[:120]}"}
     posting.text = text
-    blocker = level.prescreen(text)
+    blocker = level.prescreen(text, years_min)
     if blocker:
         # Ruled out in code, before any model is asked.
         return {"verdict": "not_qualified", "summary": f"Not qualified: {blocker}", "base": "", "items": []}
@@ -262,13 +262,22 @@ def _broken(watch: Watch, error: str, **fields) -> dict:
 
 def _check(watch: Watch, screen: bool) -> dict:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    from scout import history
     try:
         rows = providers.fetch(watch)
     except Exception as exc:  # noqa: BLE001
+        history.failure(watch, f"{type(exc).__name__}: {exc}", now)
         return _broken(watch, f"{type(exc).__name__}: {str(exc)[:200]}", last_checked=now)
     if not rows:
+        # An empty page is a failed read, not every role closing at once.
+        history.failure(watch, "the page listed no roles", now)
         return _broken(watch, "the page lists no roles at all; wrong URL, or the site changed",
                        last_checked=now, last_total=0, last_matching=0)
+    try:
+        seen_before = history.reconcile(watch, rows, now)
+    except Exception:  # noqa: BLE001 - the history is an extra; the check goes on
+        log.exception("scout history")
+        seen_before = {}
 
     if watch.provider == "lennys" and watch.args.get("follow", True):
         try:
@@ -288,8 +297,11 @@ def _check(watch: Watch, screen: bool) -> dict:
     if not first_run:
         for posting in fresh[:SCREEN_LIMIT]:
             company = posting.company or watch.company
-            verdict, summary = _screen(posting, company) if screen else ("", "")
-            fit = _fit(posting, company) if screen and verdict in QUEUE_VERDICTS else {}
+            # A curated watch judges a 4-5 year ask by the fit model (years_min);
+            # every other watch keeps the default rule.
+            years = {"years_min": watch.args["years_min"]} if watch.args.get("years_min") else {}
+            verdict, summary = _screen(posting, company, **years) if screen else ("", "")
+            fit = _fit(posting, company, **years) if screen and verdict in QUEUE_VERDICTS else {}
             posting.text = posting.text[:TEXT_KEEP]
             hits.append(Hit(watch_id=watch.id, company=company, posting=posting.to_dict(),
                             verdict=verdict, summary=summary, fit=fit))
@@ -315,7 +327,9 @@ def _check(watch: Watch, screen: bool) -> dict:
     store.update_watch(watch.id, last_checked=now, last_ok=now, last_total=len(rows),
                        last_matching=len(matching), error=None, broken_mailed=False,
                        seen_ids=sorted(seen & listed),
-                       listed=[_keep_fit(listed_row(p), store.fits_by_id(watch.id)) for p in matching[:LISTED_KEEP]])
+                       listed=[_keep_fit(listed_row(p), store.fits_by_id(watch.id))
+                               | {"freshness": history.freshness(seen_before.get(p.id), now)}
+                               for p in matching[:LISTED_KEEP]])
     return {"checked": True, "ok": True, "total": len(rows), "matching": len(matching),
             "new": len(added), "queued": len(queued), "first_run": first_run, "hits": [h.id for h in added]}
 

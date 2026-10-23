@@ -114,6 +114,9 @@ CATALOG: tuple[Prompt, ...] = (
            "The practice questions for a shortlisted job, from its posting. Questions only, never answers; "
            "the stories they map to are matched in code (career/stories.py).",
            _const("career.stories", "PREP_PROMPT")),
+    Prompt("outreach.linkedin", "LinkedIn connection note", "Tailoring",
+           "The short note sent with a LinkedIn connection request. It is copied by hand; the app never sends it.",
+           _const("tailor.outreach", "LINKEDIN_PROMPT")),
     Prompt("outreach.followup", "Outreach follow-up", "Tailoring",
            "The follow-up drafted when an email has had no answer for two days. A draft only; "
            "it is sent by your click like the first one.",

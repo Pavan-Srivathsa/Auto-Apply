@@ -72,3 +72,11 @@ def test_a_forms_question_or_answer_about_sponsorship_is_not_a_refusal():
         assert not level.needs_no_sponsor(text), text
     assert level.needs_no_sponsor("About the role. Candidates must be authorized to work in the U.S. without sponsorship.")
     assert level.needs_no_sponsor("Do you need a visa?\nWe are unable to sponsor visas for this role.")
+
+
+def test_a_curated_watch_judges_a_four_or_five_year_ask_instead_of_ruling_it_out():
+    from scout import filter as level
+    text = "Requirements: 4+ years of experience building ML systems."
+    assert level.prescreen(text) and "4+ years" in level.prescreen(text)          # every other watch
+    assert level.prescreen(text, years_min=6) is None                              # the curated ones
+    assert level.prescreen("8+ years of experience", years_min=6)

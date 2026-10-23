@@ -953,6 +953,54 @@ async function prepHtml(id, refresh) {
     ${p.practice.length ? `<h4>Practice questions</h4><ol>${p.practice.map((q) => `<li>${escape(q.q)} <span class="hint">${escape(q.kind || "")}</span></li>`).join("")}</ol>` : ""}`;
 }
 
+// Scout intelligence: every role listed now ranked by fit, the curated
+// agentic-AI watchlist, and each listing's history (scout/history.py).
+const FRESH = { fresh: "Fresh", open: "Open", recently_updated: "Recently updated", reposted: "Reposted",
+                potentially_stale: "Potentially stale", verification_required: "Verification required" };
+function roleRows(rows) {
+  return rows.map((r) => `<div class="hit"><div class="t"><a href="${escape(r.url)}" target="_blank" rel="noopener">${escape(r.title)}</a>
+      · ${escape(r.company || "")} <span class="hint">${escape(r.location || "")} ${escape(r.posted || "")}</span></div>
+    <div class="m">${r.fit && r.fit.verdict ? `<strong>${escape(r.fit.verdict.replace("_", " "))}</strong> · ${escape((r.fit.summary || "").slice(0, 140))}` : "fit not worked out yet"}
+      ${r.freshness ? ` · <span title="${escape((r.freshness.evidence || []).join("; "))}">${FRESH[r.freshness.label] || escape(r.freshness.label)}</span>` : ""}</div></div>`).join("");
+}
+Insights.extra.push(["discovery", "Job discovery", "every open role, by fit"],
+                    ["startups", "AI startups", "the curated fifty"],
+                    ["history", "Monitoring history", "reposts, stale, closed"]);
+Insights.renderers.discovery = async () => {
+  const d = await api("/scout/discovery");
+  $("detail").innerHTML = `<div class="head"><h2>Job discovery</h2><span class="state agent">${d.total} roles</span></div>
+    <p class="hint">Every role your watches list right now at your level, qualified first. Freshness is shown next to the fit and never hides a role.</p>
+    <div class="card">${roleRows(d.roles) || `<p class="empty">No roles listed yet.</p>`}</div>`;
+};
+Insights.renderers.startups = async () => {
+  const c = await api("/scout/curated");
+  const healthy = c.companies.filter((x) => x.health === "ok").length;
+  $("detail").innerHTML = `<div class="head"><h2>AI startups</h2><span class="state agent">${c.companies.length || 50} companies · ${healthy} boards read</span></div>
+    <p class="hint">Each company's public board, verified to be theirs. These watches list and score roles and never queue one; add the ones you want from here or from Scout. The first check lists every open role at once and sends no mail.</p>
+    <div class="actions"><button class="act primary" id="curatedImport" ${c.importing ? "disabled" : ""}>${c.importing ? "Resolving boards…" : c.companies.length ? "Check the list again" : "Resolve and watch the fifty"}</button>
+      ${c.last_import && c.last_import.unresolved ? `<span class="hint">Not found on a public board: ${c.last_import.unresolved.map(escape).join(", ")}</span>` : ""}</div>
+    ${c.companies.length ? `<div class="card"><table class="kv">${c.companies.map((x) => `<tr><td>${escape(x.company)}</td>
+      <td>${x.status === "resolved" ? `${escape(x.provider)} · ${x.listed} at your level of ${x.total} · ${escape(x.health)}${x.manual ? " · your own watch" : ""}` : `<span class="hint">${escape(x.error || "not found")}</span>`}</td>
+      <td class="hint">${x.last_verified ? escape(x.last_verified.slice(0, 10)) : ""}</td></tr>`).join("")}</table></div>
+      <h3>Open roles, by fit</h3><div class="card">${roleRows(c.roles) || `<p class="empty">No roles listed yet.</p>`}</div>` : ""}`;
+  if ($("curatedImport")) $("curatedImport").onclick = async () => {
+    await api("/scout/curated/import", { method: "POST", body: "{}" });
+    setTimeout(() => Insights.render(), 4000);
+    Insights.render();
+  };
+};
+Insights.renderers.history = async () => {
+  const h = await api("/scout/history");
+  $("detail").innerHTML = `<div class="head"><h2>Monitoring history</h2><span class="state agent">${h.records.length} listings</span></div>
+    <p class="hint">A role is closed only after two complete listings without it, and a failed check closes nothing. A repost is the same title coming back after closing; a role open a long time is flagged only when it has also been reposted or come back. Hover a label for its evidence.</p>
+    <div class="sum">${Object.entries(h.summary).map(([k, v]) => `<span>${FRESH[k] || escape(k)} <strong>${v}</strong></span>`).join("")}</div>
+    <div class="card">${h.records.filter((r) => r.freshness.label !== "open").slice(0, 150).map((r) => `<div class="hit"><div class="t">${escape(r.title)} · ${escape(r.company || "")}
+      <strong>${FRESH[r.freshness.label] || escape(r.freshness.label)}</strong> <span class="hint">${escape(r.state || "")}</span></div>
+      <div class="m">${r.freshness.evidence.map(escape).join(" · ")}</div>
+      ${r.freshness.transitions.length ? `<div class="m hint">${r.freshness.transitions.map((t) => `${escape(t.at.slice(0, 10))} ${escape(t.to)}: ${escape(t.why)}`).join(" · ")}</div>` : ""}</div>`).join("")
+      || `<p class="empty">Everything listed is simply open. History builds with every check.</p>`}</div>`;
+};
+
 function wireBullets(id) {
   for (const button of document.querySelectorAll("[data-bullet]")) {
     button.onclick = () => act(id, () => api(`/review/${id}/bullets/${button.dataset.bullet}/decision`,
@@ -1316,6 +1364,7 @@ function outreachContactActions(contact) {
     <button class="act" data-outreach-apollo="${escape(contact.id)}">Apollo email</button>
     <button class="act" data-outreach-jobright="${escape(contact.id)}" ${canJobright ? "" : "disabled"}>Jobright guess</button>
     <button class="act primary" data-outreach-draft="${escape(contact.id)}" ${contact.email ? "" : "disabled"}>Write email</button>
+    <button class="act" data-outreach-linkedin="${escape(contact.id)}" title="A connection note to copy into LinkedIn; the app never sends it">LinkedIn note</button>
   </div>`;
 }
 
@@ -1344,6 +1393,7 @@ function outreachSetup(state) {
       <span>${contact.email ? escape(contact.email) : "No email yet"}</span>
       <span class="source">${escape(contact.source)} · ${escape(contact.verification)}</span>
       ${contact.linkedin_url ? `<br><a href="${escape(contact.linkedin_url)}" target="_blank" rel="noreferrer">LinkedIn ↗</a>` : ""}
+      ${contact.reason ? `<br><span class="hint">Why: ${escape(contact.reason)}${contact.confidence ? ` · ${Math.round(contact.confidence * 100)}%` : ""}</span>` : ""}
       ${outreachContactActions(contact)}
       </div>
     </div>`).join("");
@@ -1361,6 +1411,7 @@ function outreachSetup(state) {
         <label><input type="checkbox" class="outreach-who" value="hiring_manager" checked> Hiring managers</label>
         <label title="Founders, CEO, CTO, CFO, COO, VP or head of engineering, partners"><input type="checkbox" class="outreach-who" value="leadership"> Leadership</label>
         <button class="act primary" id="outreachDiscover" ${state.apollo_configured ? "" : "disabled"}>Find people</button>
+        <button class="act" id="outreachLeaders" ${state.apollo_configured ? "" : "disabled"} title="The engineering leaders this role reports into, ranked with reasons">Find this role's leaders</button>
         <span class="hint">${escape(state.lookup_note || "Apollo search spends no email credit; enrichment is requested separately.")}</span>
       </div>
       <select id="outreachRole"><option value="recruiter">Recruiter</option><option value="hiring_manager">Hiring manager</option><option value="leadership">Leadership (founder, CEO, CTO, CFO, partner)</option></select>
@@ -1399,6 +1450,8 @@ function outreachHtml(id, state) {
         <label><input type="checkbox" id="outreachAttach" ${draft.attach_resume ? "checked" : ""} ${locked ? "disabled" : ""}> Attach tailored resume</label>
         ${needsVerify ? `<label><input type="checkbox" id="outreachVerify" ${draft.verified_by_user ? "checked" : ""} ${locked ? "disabled" : ""}> I verified this address</label>` : ""}
         ${locked ? `<span class="state ${draft.status === "sent" ? "go" : "stop"}">${escape(draft.status)}</span>`
+          : draft.channel === "linkedin" ? `<button class="act" id="outreachSave">Save</button>
+             <span class="hint">A LinkedIn note: copy it into the connection request yourself. The app never sends it.</span>`
           : `<button class="act" id="outreachSave">Save</button>
              <button class="act primary" id="outreachSend" ${state.mail_configured ? "" : "disabled"}>Approve and send</button>`}
       </div>
@@ -1477,6 +1530,10 @@ function wireOutreach(id, state) {
     email: $("outreachEmail").value.trim(),
     linkedin_url: $("outreachLinkedIn").value.trim(),
   });
+  if ($("outreachLeaders")) $("outreachLeaders").onclick = () => run("/leaders");
+  for (const button of document.querySelectorAll("[data-outreach-linkedin]")) {
+    button.onclick = () => run("/linkedin", { contact_id: button.dataset.outreachLinkedin });
+  }
   for (const button of document.querySelectorAll("[data-outreach-apollo]")) {
     button.onclick = () => run("/apollo", { contact_id: button.dataset.outreachApollo });
   }

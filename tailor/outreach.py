@@ -288,3 +288,55 @@ def write_followup(context: Context, contact: Contact, earlier: list[Draft], n: 
             return Written(subject if subject.lower().startswith("re:") else f"Re: {subject}", body, model, attempt)
         user += "\n\n## Previous reply rejected\n\n" + "; ".join(last) + ". Write it again."
     raise OutreachError(f"follow-up broke the rules on {ATTEMPTS} attempts: " + "; ".join(last))
+
+
+# ------------------------------------------------------------- LinkedIn --
+LINKEDIN_MAX = 300      # LinkedIn's limit on a connection-request note
+LINKEDIN_PROMPT = """You write a LinkedIn connection-request note from a job candidate to one person
+at a company about one role. At most 280 characters including spaces. Plain text.
+
+- Open with "Hi <first name>," and say who the candidate is in a few words.
+- One concrete, true proof point from the brief's evidence or the resume, with its real measure.
+- Name the role. One small ask: whether they are open to connecting, or who runs hiring for it.
+- No links, no dashes used as punctuation, no flattery, no "I hope this finds you well".
+- Use only facts in the evidence, the resume and the profile. Invent nothing.
+
+Reply with exactly one fenced block and nothing else:
+
+```note
+<the note>
+```
+"""
+
+
+def linkedin_problems(note: str, first: str = "") -> list[str]:
+    found = []
+    if len(note) > LINKEDIN_MAX:
+        found.append(f"the note was {len(note)} characters; LinkedIn allows {LINKEDIN_MAX}")
+    if first and not re.match(rf"^\s*Hi {re.escape(first)},", note, re.I):
+        found.append(f'the note must open with "Hi {first},"')
+    if re.search(r"https?://|www\.", note):
+        found.append("the note had a link")
+    if cover.has_dash(note):
+        found.append("the note used a dash as punctuation")
+    return found
+
+
+def write_linkedin(context: Context, contact: Contact, job_title: str, company: str,
+                   candidate_name: str, brief: Optional[briefs.Brief] = None,
+                   model: Optional[str] = None) -> Written:
+    """A connection note: drafted, checked, and copied by hand. Never sent."""
+    model = model or llm.tailor_model()
+    first = first_name(contact.name)
+    user = (context.as_message() + ("\n\n" + brief.as_message() if brief else "")
+            + f"\n\n## Recipient\n\nName: {contact.name}\nTitle: {contact.title or 'unknown'}\n"
+            + f"Company: {company or contact.company}\nJob: {job_title}\nCandidate name: {candidate_name}")
+    last: list[str] = []
+    for attempt in range(1, ATTEMPTS + 1):
+        reply = llm.complete(prompts.text("outreach.linkedin"), user, model=model, temperature=0.4, max_tokens=500)
+        note = " ".join(_block(reply, "note").split())
+        last = linkedin_problems(note, first)
+        if not last:
+            return Written("", note, model, attempt)
+        user += "\n\n## Previous reply rejected\n\n" + "; ".join(last) + ". Write it again."
+    raise OutreachError("LinkedIn note broke the rules on 3 attempts: " + "; ".join(last))

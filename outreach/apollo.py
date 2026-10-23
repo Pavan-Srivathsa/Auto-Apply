@@ -39,6 +39,13 @@ TITLES = {
         "vp of engineering", "head of engineering", "partner", "managing partner", "general partner",
     ],
 }
+# The engineering leaders above a role, for the job-specific research
+# (outreach/leaders.py): searched like the rest, ranked there.
+TITLES["ai_leadership"] = [
+    "head of ai", "head of machine learning", "head of ml", "director of machine learning", "director of ai",
+    "vp of engineering", "vice president of engineering", "cto", "chief technology officer", "co-founder",
+    "head of platform", "head of infrastructure", "engineering director",
+]
 DEFAULT_ROLES = ("recruiter", "hiring_manager")
 
 
@@ -116,7 +123,7 @@ def search(company: str, role: str, limit: int = 4,
         if not name:
             continue
         contacts.append(Contact.create(
-            role=role,
+            role="leadership" if role == "ai_leadership" else role,
             name=name,
             title=str(person.get("title") or ""),
             company=found_company or company,

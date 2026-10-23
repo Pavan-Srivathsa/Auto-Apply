@@ -290,6 +290,8 @@ def send(job_id: str, draft_id: str, request: SendRequest) -> dict:
     draft = outreach.draft(draft_id)
     if draft is None:
         raise HTTPException(404, "draft not found")
+    if draft.channel != "email":
+        raise HTTPException(409, "a LinkedIn note is copied and sent by you on LinkedIn; the app never sends it")
     contact = outreach.contact(draft.contact_id)
     if contact is None or not contact.email:
         raise HTTPException(409, "the recipient has no email")
@@ -347,3 +349,39 @@ def send(job_id: str, draft_id: str, request: SendRequest) -> dict:
         sent.error = f"sent, but the immutable audit record failed: {exc}"
     store.put_draft(job_id, sent)
     return _status(job_id)
+
+
+
+@router.post("/{job_id}/outreach/leaders")
+def research_leaders(job_id: str) -> dict:
+    """The engineering leaders for this role, ranked with reasons. Free
+    people search only; no enrichment credit is spent and no email guessed."""
+    from outreach import leaders
+    job, _ = _job_and_dir(job_id)
+    if not (job.company or "").strip():
+        raise HTTPException(409, "the job has no company to search")
+    return leaders.research(job_id, job.company, job.title) | {"outreach": status(job_id)}
+
+
+@router.post("/{job_id}/outreach/linkedin")
+def linkedin_note(job_id: str, request: ContactAction) -> dict:
+    """A LinkedIn connection note for one contact: a draft to copy, never sent."""
+    from outreach import drafting
+    from outreach.models import Draft
+    from tailor import brief as briefs
+    from tailor import outreach as writer
+    job, app_dir = _job_and_dir(job_id)
+    outreach = store.get(job_id)
+    contact = outreach.contact(request.contact_id)
+    if contact is None:
+        raise HTTPException(404, "contact not found")
+    try:
+        written = writer.write_linkedin(drafting.context(app_dir), contact, job.title, job.company,
+                                        drafting.candidate_name(app_dir), brief=briefs.load(app_dir))
+    except writer.OutreachError as exc:
+        raise HTTPException(502, str(exc)) from None
+    draft = Draft.create(contact_id=contact.id, subject="LinkedIn connection note", body=written.body,
+                         attach_resume=False, resume_folder=app_dir.name, model=written.model)
+    draft.channel = "linkedin"
+    store.put_draft(job_id, draft)
+    return status(job_id)
