@@ -286,10 +286,11 @@ def test_the_engine_never_clicks_a_submit_control():
 
 
 def run_documents(page, resume=None, cover=None, adapter=None, answerer=None,
-                  corrections=None, fill_known=False):
+                  corrections=None, fill_known=False, education=None):
     return asyncio.run(engine.run_documents(page, adapter or forms.Greenhouse(), "TARGET1234",
                                             resume=resume, cover_letter=cover, answerer=answerer,
-                                            corrections=corrections, fill_known=fill_known))
+                                            corrections=corrections, fill_known=fill_known,
+                                            education=education))
 
 
 def test_corrected_fields_go_over_what_autofill_left_by_label_only():
@@ -526,3 +527,22 @@ def test_a_posting_page_is_not_filled_at_all(tmp_path):
     assert asked == [] and page.fields["2"]["value"] == ""
     assert not report.resume_uploaded and not page.marked
     assert any("no application form on this page" in e for e in report.errors)
+
+
+def test_education_is_filled_only_where_jobright_left_it_empty():
+    profile = Profile({"school": "University of Southern California", "degree": "Master's",
+                       "discipline": "Computer Science"})
+    page = FakePage([
+        gh_field("1", id="school", label="School", value="Jobright's school"),
+        gh_field("2", id="degree", label="Degree", value=""),
+        gh_field("3", id="discipline", label="Discipline", value=""),
+        gh_field("4", id="resume", type="file", kind="file", name="resume", label="Resume/CV *"),
+    ])
+    report = run_documents(page, education=profile)
+    assert page.fields["1"]["value"] == "Jobright's school"            # Jobright's value is never overwritten
+    assert page.fields["2"]["value"] == "Master's" and page.fields["3"]["value"] == "Computer Science"
+    # And in the check-after-Jobright pass too, a filled education field stays.
+    page = FakePage([gh_field("1", id="school", label="School", value="Jobright's school"),
+                     gh_field("4", id="resume", type="file", kind="file", name="resume", label="Resume/CV *")])
+    run_documents(page, corrections=profile, fill_known=True)
+    assert page.fields["1"]["value"] == "Jobright's school"

@@ -513,7 +513,10 @@ async def fill_async(
     profile = forms.load() if adapter else None
     form_fill_on = (
         fill_mode == AUTOPILOT_MODE
-        or (fill_mode != JOBRIGHT_CHECK_MODE and os.environ.get(FORM_FILL_ENV, "1") != "0")
+        # Jobright's autofill is step one unless the person pressed "Autopilot
+        # fill" or set AUTOPILOT_FORM_FILL=1: a code-first fill skipped Jobright
+        # entirely and its education pickers broke forms (2026-10-23).
+        or (fill_mode != JOBRIGHT_CHECK_MODE and os.environ.get(FORM_FILL_ENV, "0") == "1")
     )
     if adapter and profile and form_fill_on:
         try:
@@ -561,6 +564,10 @@ async def fill_async(
                                and settings.auto_learn() else None)
             try:
                 check_options = {"fill_known": True} if fill_known else {}
+                # Education Jobright left empty is filled from base/form.json,
+                # and only that: a value already on the field stays.
+                if not fill_known and not deterministic_mode:
+                    check_options["education"] = forms.load()
                 docs = await forms.upload_documents(cdp_url, pressed.target_id, adapter or forms.Adapter(),
                                                     resume_pdf, cover_letter_pdf,
                                                     None if deterministic_mode else answerer,

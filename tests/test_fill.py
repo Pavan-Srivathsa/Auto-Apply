@@ -524,9 +524,12 @@ def test_without_the_agent_the_fill_is_the_documents_and_nothing_else(monkeypatc
 
     stores = []
 
+    educations = []
+
     async def upload_documents(cdp_url, target_id, adapter, resume=None, cover_letter=None, answerer=None,
-                               corrections=None):
+                               corrections=None, education=None):
         stores.append(corrections)
+        educations.append(education)
         return fill.forms.Report(target_id=target_id, resume_uploaded=True, resume_name=resume.name,
                                  cover_letter_uploaded=cover_letter is not None,
                                  answered=["Why us?"] if answerer else [],

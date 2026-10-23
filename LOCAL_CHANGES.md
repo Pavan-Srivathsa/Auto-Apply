@@ -469,3 +469,8 @@ GLM's verdict on 5 of 9, so GLM stays. Scout now skips the reason call
 (`qualify.assess(explain=False)`; applications keep it), and the fit cache
 answers by company and title too, so a posting on several sources is scored
 once. One fit: $0.0078 -> $0.0027.
+
+## 2026-10-23 — Education only where Jobright left it empty
+Asked: "the education being autofilled is causing errors. fill it only if jobright doesn't fill it"
+Changed: `browser/fill.py`, `browser/forms/engine.py`, `tests/test_forms.py`, `tests/test_fill.py`.
+Intent: Jobright's autofill runs first on every form unless `AUTOPILOT_FORM_FILL=1` or the Autopilot fill button is chosen. School, degree, discipline and graduation year are filled from the profile only on fields still empty after Jobright, and the check pass never overwrites an education field that already has a value.

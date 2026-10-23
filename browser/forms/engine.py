@@ -552,6 +552,7 @@ LABELS: list[tuple[str, str]] = [
     (r"\bdisabilit", "disability"),
 ]
 _LABELS = [(re.compile(p, re.I), key) for p, key in LABELS]
+EDUCATION_KEYS = {"school", "degree", "discipline", "graduation_year"}
 
 # `<select>` and radio options to try, in order, per key. The first that
 # matches an option's text wins; each falls back to the value itself.
@@ -831,16 +832,30 @@ class Engine:
             if f.question and f.question not in self.report.protected:
                 self.report.protected.append(f.question)
             return
+        # Education is Jobright's to fill; the code only fills what it left
+        # empty, never over a value (2026-10-23: the school and degree pickers
+        # filled by code were where forms broke).
+        key = match_key(f, self.adapter)
+        if key in EDUCATION_KEYS and f.value.strip():
+            return
         value = self.profile.answer(f.question) or self.profile.answer(f.label)
-        key = ""
         if not value:
-            key = match_key(f, self.adapter)
             value = self.profile.get(key) if key else ""
         if not value:
             return
         if await self.set_value(f, value, OPTION_ALIASES.get(key, [])):
             self.report.filled.append(f.question or key)
             await self.mark(f.ref, "from your profile")
+
+    async def fill_empty_education(self, fields: list[Field]) -> None:
+        """School, degree, field of study and graduation year, on the fields
+        Jobright left empty. A field with any value is left as it is."""
+        for f in fields:
+            if f.kind != "file" and not f.value.strip() and match_key(f, self.adapter) in EDUCATION_KEYS:
+                try:
+                    await self.fill_field(f)
+                except Exception as error:  # noqa: BLE001 - one field never stops the rest
+                    self.report.errors.append(f"education {f.question[:60]!r}: {error}")
 
     async def set_value(self, f: Field, value: str, aliases: Optional[list[str]] = None) -> bool:
         """Put `value` on the field the way its kind wants: the native
@@ -1344,7 +1359,7 @@ NOT_A_FORM = ("no application form on this page: press Apply and sign in, "
 async def run_documents(page: Session, adapter: Adapter, target_id: str = "",
                         resume: Optional[Path] = None, cover_letter: Optional[Path] = None,
                         answerer=None, corrections: Optional[Profile] = None,
-                        fill_known: bool = False) -> Report:
+                        fill_known: bool = False, education: Optional[Profile] = None) -> Report:
     """The files, the corrections and the open questions, on a form
     something else has filled: the tailored resume over whatever Jobright
     attached, the cover letter where there is a slot for one, every field
@@ -1391,6 +1406,11 @@ async def run_documents(page: Session, adapter: Adapter, target_id: str = "",
     await engine.upload_files(fields)
     # The uploads may have re-rendered the form; read it again.
     fields = await engine.scan() or fields
+    if education is not None and not fill_known:
+        filler = Engine(page, adapter, education, None, None)
+        filler.report = report
+        await filler.fill_empty_education(fields)
+        fields = await engine.scan() or fields
     if fill_known:
         report.note = "checked after Jobright"
         for f in fields:
@@ -1410,11 +1430,11 @@ async def run_documents(page: Session, adapter: Adapter, target_id: str = "",
 async def upload_documents(cdp_url: str, target_id: str, adapter: Adapter,
                            resume: Optional[Path] = None, cover_letter: Optional[Path] = None,
                            answerer=None, corrections: Optional[Profile] = None,
-                           fill_known: bool = False) -> Report:
+                           fill_known: bool = False, education: Optional[Profile] = None) -> Report:
     """`run_documents` in the tab `target_id`, attached over CDP. The tab
     stays open; the agent takes over in it afterwards."""
     async with attached(cdp_url, target_id=target_id) as (page, _):
         await page.send("DOM.enable")
         return await run_documents(
-            page, adapter, target_id, resume, cover_letter, answerer, corrections, fill_known,
+            page, adapter, target_id, resume, cover_letter, answerer, corrections, fill_known, education,
         )
