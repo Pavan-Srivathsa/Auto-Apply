@@ -62,3 +62,13 @@ def test_yc_never_lists_a_citizen_or_visa_only_role():
             {"id": 2, "title": "SWE", "url": "/companies/b/jobs/2", "visa": "Will sponsor"}]
     page = f'<div data-page="{h.escape(json.dumps({"props": {"jobPostings": jobs}}))}"></div>'
     assert [p.id for p in yc.parse(page)] == ["2"]
+
+
+def test_a_forms_question_or_answer_about_sponsorship_is_not_a_refusal():
+    from scout import filter as level
+    for text in ["Are you legally authorized to work in the U.S. without sponsorship?\nYes\nNo",
+                 "Yes, I am authorized to work in the U.S. without sponsorship",
+                 "No, I do not require visa sponsorship to work in the United States"]:
+        assert not level.needs_no_sponsor(text), text
+    assert level.needs_no_sponsor("About the role. Candidates must be authorized to work in the U.S. without sponsorship.")
+    assert level.needs_no_sponsor("Do you need a visa?\nWe are unable to sponsor visas for this role.")

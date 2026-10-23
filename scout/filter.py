@@ -187,9 +187,37 @@ _NO_SPONSOR = re.compile(
     re.I)
 
 
+# A form's own question or the candidate's answer reads like a policy: "Are you
+# authorized to work in the US without sponsorship?", "Yes, I am authorized to
+# work without sponsorship". Upstream's fix (85487d2): a question, or a sentence
+# that opens the way an answer opens, is never the employer refusing.
+_ANSWER_OPENS = re.compile(
+    r"^\s*(?:(?:yes|no|n/?a|not\s+applicable)\s*[,:;\u2014-]|i\s+(?:do|am|have|will|would)\b)", re.I)
+_QUESTION_OPENS = re.compile(
+    r"^\s*(?:are|do|does|will|would|can|could|is|have|has)\s+(?:you|your)\b", re.I)
+
+
+_END = re.compile(r"\n|[.!?](?=\s+[A-Z]|\s*$)")
+
+
+def _sentence(text: str, start: int, end: int) -> str:
+    """The sentence (or line) a match sits in. "U.S. without" is one sentence:
+    a stop only ends one before a capital or the end of the text."""
+    left = max((m.end() for m in _END.finditer(text) if m.end() <= start), default=0)
+    after = _END.search(text, end)
+    return text[left:after.end() if after else len(text)].strip()
+
+
 def needs_no_sponsor(text: str) -> bool:
-    """True when the posting refuses visa sponsorship."""
-    return bool(_NO_SPONSOR.search(" ".join((text or "").split())))
+    """True when the posting refuses visa sponsorship. A form's question about
+    sponsorship, or an answer to one, is not a refusal."""
+    text = text or ""
+    for match in _NO_SPONSOR.finditer(text.replace("\r", "")):
+        sentence = _sentence(text, match.start(), match.end())
+        if sentence.endswith("?") or _QUESTION_OPENS.match(sentence) or _ANSWER_OPENS.match(sentence):
+            continue
+        return True
+    return False
 
 
 def prescreen(text: str) -> str | None:

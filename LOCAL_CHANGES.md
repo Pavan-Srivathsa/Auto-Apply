@@ -224,3 +224,11 @@ before years, clearance or citizenship, so the Scout's screen is a reject with
 no model call. YC rows with that visa line are never listed, and `queue_hit`
 refuses such a hit, including the hand "Add to autopilot" (which now reads the
 description first).
+
+## 2026-10-22 — A form's sponsorship question is not a refusal
+
+Intent: from the original repo (85487d2), ported. "Are you authorized to work
+in the U.S. without sponsorship?" and the answer "Yes, I am authorized ...
+without sponsorship" read as the employer refusing, so a posting captured on
+its form would be rejected. A match in a question, or in a sentence that opens
+like an answer ("Yes,", "No,", "I am"), no longer counts.
