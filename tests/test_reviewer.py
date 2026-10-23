@@ -393,3 +393,13 @@ def test_an_edit_is_escaped_saved_and_never_overwritten_by_a_later_revision(api,
     stub_revision(monkeypatch, later)
     result = pipeline.verify_bullets(folder, Posting(), MASTER, result_of(later), None, "", [], Base(), None)
     assert r"vLLM \& TGI" in result.tex and "tail latency" not in result.tex
+
+
+def test_usage_is_counted_per_provider_and_never_carries_text(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUTOPILOT_USAGE", str(tmp_path / "usage.json"))
+    costs.record("jev", 1000, 10)
+    costs.record("openrouter:glm", 500, 200, usd=0.01)
+    u = costs.usage()
+    assert u["by_provider"]["jev"]["calls"] == 1 and u["usd"] == pytest.approx(0.01 + 1000 * 0.042 / 1e6, abs=1e-4)
+    stored = (tmp_path / "usage.json").read_text()
+    assert set(json.loads(stored)) and "key" not in stored.lower()

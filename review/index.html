@@ -1001,6 +1001,25 @@ Insights.renderers.history = async () => {
       || `<p class="empty">Everything listed is simply open. History builds with every check.</p>`}</div>`;
 };
 
+// What the app has been doing (server/system.py): counts and costs only.
+Insights.extra.push(["system", "System", "coverage, failures, cost"]);
+Insights.renderers.system = async () => {
+  const m = await api("/system/metrics");
+  const sc = m.scout, rv = m.reviewer, u = m.usage, o = m.outreach;
+  $("detail").innerHTML = `<div class="head"><h2>System</h2><span class="state agent">last ${u.days} days · $${u.usd.toFixed(2)}</span></div>
+    <h3>Scout</h3><div class="card fit"><div class="sum"><span>watches <strong>${sc.watches}</strong></span><span>curated <strong>${sc.curated}</strong></span>
+      <span>broken <strong style="color:var(--red)">${sc.broken}</strong></span><span>roles open <strong>${sc.roles_open}</strong></span>
+      <span>at your level <strong>${sc.roles_at_level}</strong></span><span>scored <strong>${sc.roles_scored}</strong></span><span>hits mailed <strong>${sc.hits_mailed}/${sc.hits}</strong></span></div>
+      ${sc.errors.length ? `<table class="kv">${sc.errors.map((e) => `<tr><td>${escape(e.company)}</td><td class="hint">${escape(e.error)}</td></tr>`).join("")}</table>` : ""}</div>
+    <h3>Bullet reviewer</h3><div class="card fit"><div class="sum"><span>reviews <strong>${rv.files}</strong></span><span>pass <strong>${rv.PASS}</strong></span>
+      <span>warn <strong>${rv.WARN}</strong></span><span>fail <strong>${rv.FAIL}</strong></span><span>unknown <strong>${rv.UNKNOWN}</strong></span>
+      <span>escalated <strong>${rv.escalated}</strong></span><span>put back <strong>${rv.reverted}</strong></span><span>waiting for you <strong>${rv.needs_human}</strong></span></div></div>
+    <h3>Model usage</h3><div class="card"><table class="kv">${Object.entries(u.by_provider).map(([k, v]) => `<tr><td>${escape(k)}</td>
+      <td>${v.calls} calls · ${v.in.toLocaleString()} in · ${v.out.toLocaleString()} out · $${v.usd.toFixed(4)}</td></tr>`).join("") || `<tr><td class="empty">No calls recorded yet.</td></tr>`}</table></div>
+    <h3>Outreach</h3><div class="card fit"><div class="sum"><span>contacts <strong>${o.contacts}</strong></span><span>emails from Apollo enrichment <strong>${o.apollo_enriched}</strong></span>
+      <span>drafts <strong>${o.drafts}</strong></span><span>sent by you <strong>${o.sent}</strong></span><span>failed <strong>${o.failed}</strong></span></div></div>`;
+};
+
 function wireBullets(id) {
   for (const button of document.querySelectorAll("[data-bullet]")) {
     button.onclick = () => act(id, () => api(`/review/${id}/bullets/${button.dataset.bullet}/decision`,

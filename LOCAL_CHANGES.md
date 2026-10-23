@@ -321,3 +321,11 @@ hand is linked. Curated watches judge a 4-5 year ask by the fit model.
 `outreach/leaders.py` ranks the role's own engineering leaders with a reason
 and confidence from free search only; LinkedIn notes are drafts the send
 route refuses. Insights gains Job discovery, AI startups and Monitoring history.
+
+## 2026-10-22 — The System view: coverage, failures, verdicts and cost
+
+Intent: the person's spec, feature 9 (observability). Every model call adds
+its tokens and dollars to `data/usage.json` by day and provider (counts only).
+`/system/metrics` and the Insights tab's System view show Scout coverage and
+broken boards, roles scored, the bullet reviewer's verdicts, escalations and
+reverts, model usage and cost, enrichment use and outreach delivery.

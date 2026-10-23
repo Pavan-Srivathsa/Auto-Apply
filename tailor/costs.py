@@ -90,3 +90,59 @@ def record(provider: str, input_tokens: int = 0, output_tokens: int = 0,
         usd = jev_usd(input_tokens, output_tokens) if provider == "jev" else 0.0
     for ledger in _open():
         ledger.add(provider, int(input_tokens or 0), int(output_tokens or 0), float(usd or 0.0), seconds)
+    try:
+        _persist(provider, int(input_tokens or 0), int(output_tokens or 0), float(usd or 0.0))
+    except OSError:
+        pass
+
+
+_file_lock = threading.Lock()
+
+
+def usage_path():
+    from pathlib import Path
+    import paths
+    return Path(os.environ.get("AUTOPILOT_USAGE") or paths.DATA / "usage.json")
+
+
+def _persist(provider: str, input_tokens: int, output_tokens: int, usd: float) -> None:
+    """Calls, tokens and dollars per day and provider, for the System view.
+    Counts only: never a key, a prompt or a reply."""
+    import json
+    from datetime import date
+    path = usage_path()
+    with _file_lock:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            data = {}
+        row = data.setdefault(date.today().isoformat(), {}).setdefault(provider, {"calls": 0, "in": 0, "out": 0, "usd": 0.0})
+        row["calls"] += 1
+        row["in"] += input_tokens
+        row["out"] += output_tokens
+        row["usd"] = round(row["usd"] + usd, 6)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data))
+        tmp.replace(path)
+
+
+def usage(days: int = 30) -> dict:
+    import json
+    from datetime import date, timedelta
+    try:
+        data = json.loads(usage_path().read_text())
+    except (OSError, ValueError):
+        data = {}
+    since = (date.today() - timedelta(days=days)).isoformat()
+    totals: dict = {}
+    for day, providers in data.items():
+        if day < since:
+            continue
+        for name, row in providers.items():
+            t = totals.setdefault(name, {"calls": 0, "in": 0, "out": 0, "usd": 0.0})
+            for k in ("calls", "in", "out"):
+                t[k] += row[k]
+            t["usd"] = round(t["usd"] + row["usd"], 6)
+    return {"days": days, "by_provider": totals, "usd": round(sum(t["usd"] for t in totals.values()), 4),
+            "by_day": {d: round(sum(r["usd"] for r in p.values()), 4) for d, p in sorted(data.items()) if d >= since}}
