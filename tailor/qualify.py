@@ -142,12 +142,16 @@ def verdict(items: list[Item], hard: list[str]) -> tuple[str, str]:
         f", partly {len(partly)} ({names(partly)})." if partly else ".")
 
 
-def assess(brief: briefs.Brief, resume: str, stories: str = "", screen: Optional[dict] = None) -> Assessment:
-    """Raises on a model failure; the caller treats the verdict as an extra."""
+def assess(brief: briefs.Brief, resume: str, stories: str = "", screen: Optional[dict] = None,
+           explain: bool = True) -> Assessment:
+    """Raises on a model failure; the caller treats the verdict as an extra.
+    `explain=False` skips the one-line reason per gap when Jev decides the
+    levels: the levels and the verdict are the same, the call that writes the
+    reasons (about half a Scout fit's cost, 2026-10-23) is not made."""
     judge = "jev" if jev.configured() else llm.tailor_model()
     if jev.configured():
         rated = levels_jev(brief, resume, stories)
-        lines = reasons(brief, resume, stories, [level for level, _ in rated])
+        lines = reasons(brief, resume, stories, [level for level, _ in rated]) if explain else {}
     else:
         lines = reasons(brief, resume, stories)
         rated = [(str(lines.get(i, {}).get("level", "missing")), None) for i in range(len(brief.requirements))]

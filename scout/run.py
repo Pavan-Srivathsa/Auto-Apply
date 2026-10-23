@@ -204,7 +204,9 @@ def fit_or_raise(posting: Posting, company: str, years_min: Optional[int] = None
         base = resume_bases.get(choice.base)
         master = base.tex_path.read_text()
         stories = tailor.load_profile(stories=profile.pick(text))
-        assessment = qualify.assess(briefs.build(text, master, stories), master, stories)
+        # No reason lines in Scout: they cost as much as the brief and only
+        # fill the Why fold; the levels and the verdict are unchanged.
+        assessment = qualify.assess(briefs.build(text, master, stories), master, stories, explain=False)
     except Exception as exc:  # noqa: BLE001 - a model or Jev step: try later
         raise FitUnavailable(f"{type(exc).__name__}: {str(exc)[:160]}") from exc
     return {"verdict": assessment.verdict, "summary": assessment.summary, "base": base.label,

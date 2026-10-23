@@ -554,12 +554,13 @@ def test_the_fit_step_runs_the_pipelines_own_steps_against_the_routed_resume(mon
     monkeypatch.setattr(tailor, "load_profile", lambda stories=None: "stories: " + ",".join(stories))
     seen = {}
     monkeypatch.setattr(briefs, "build", lambda text, master, stories: seen.update(text=text, master=master) or "BRIEF")
-    monkeypatch.setattr(qualify, "assess", lambda brief, master, stories, screen=None: qualify.Assessment(
+    monkeypatch.setattr(qualify, "assess", lambda brief, master, stories, screen=None, explain=True: seen.update(explain=explain) or qualify.Assessment(
         verdict="stretch", summary="Stretch: 1 of 4 missing (Go)",
         items=[qualify.Item(text="Go", kind="must", level="missing", reason="No Go.")]))
     fit = run_fit(posting(1, "Software Engineer", text="We need Go and Python."), "Acme")
     assert fit["verdict"] == "stretch" and fit["base"] == "ML Resume" and fit["items"][0]["reason"] == "No Go."
-    assert seen == {"text": "We need Go and Python.", "master": "\\begin{document}resume\\end{document}"}
+    assert seen == {"text": "We need Go and Python.", "master": "\\begin{document}resume\\end{document}",
+                    "explain": False}                              # Scout never pays for the reason lines
     monkeypatch.setattr(briefs, "build", lambda *a: (_ for _ in ()).throw(RuntimeError("model down")))
     assert run_fit(posting(2, "Software Engineer", text="x"), "Acme") == {}       # fails quietly: the role waits
 

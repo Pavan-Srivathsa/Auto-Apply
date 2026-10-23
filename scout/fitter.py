@@ -40,6 +40,11 @@ def cache_path() -> Path:
     return Path(os.environ.get("AUTOPILOT_FIT_CACHE") or paths.DATA / "fit_cache.json")
 
 
+def _name_key(company: str, title: str) -> str:
+    import re
+    return "name:" + re.sub(r"[^a-z0-9|]+", " ", f"{company}|{title}".lower()).strip()
+
+
 def cached(url: str) -> Optional[dict]:
     with _cache_lock:
         try:
@@ -81,7 +86,11 @@ def fit_row(watch_id: str, company: str, row: dict) -> Optional[dict]:
     """The row's fit, written on it, or None when it could not be worked out
     now (nothing is written or cached, so the next pass tries again)."""
     from scout import run
-    fit = cached(row["url"])
+    # The same posting from several sources (Simplify and the company's own
+    # board, a repost) is scored once: the cache answers by link, then by
+    # company and title (2026-10-23).
+    name = _name_key(company, row["title"])
+    fit = cached(row["url"]) or cached(name)
     if not fit:
         watch = store.get_watch(watch_id)
         years = watch.args.get("years_min") if watch else None
@@ -90,6 +99,7 @@ def fit_row(watch_id: str, company: str, row: dict) -> Optional[dict]:
         if not fit:
             return None
         remember(row["url"], fit)
+        remember(name, fit)
     store.set_listed_fit(watch_id, row["id"], fit)
     return fit
 

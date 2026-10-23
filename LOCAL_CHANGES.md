@@ -458,3 +458,14 @@ every source's date; roles older than a week leave the Jobs list, are not
 scored and are not queued; today to three days old come first. A role on
 more than one list, or a near twin at the same company, is labelled, never
 hidden. Both new watches hold.
+
+## 2026-10-23 — Scout fits cost a third: no reason lines, one score per posting
+
+Intent: "how do we decrease the cost of GLM in Scout". Measured: a Scout fit
+made two GLM calls, the brief (~18K chars in) and a reason line per gap (~14K
+chars in, only shown under Why). DeepSeek Flash was tried for both on 12 real
+roles: 15x cheaper, but it failed outright on a fifth of them and agreed with
+GLM's verdict on 5 of 9, so GLM stays. Scout now skips the reason call
+(`qualify.assess(explain=False)`; applications keep it), and the fit cache
+answers by company and title too, so a posting on several sources is scored
+once. One fit: $0.0078 -> $0.0027.
