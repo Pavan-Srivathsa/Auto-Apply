@@ -183,7 +183,14 @@ async def _set_filter(page, button: str, keep: list[str]) -> None:
     """Open the filter button whose label starts with `button` and leave
     exactly `keep` ticked. Raises when an option is not there, which is the
     site having renamed it: a red BROKEN beats a quiet wrong list."""
-    opened = await page.evaluate(f"({FILTER_JS})({json.dumps(button)})")
+    # The page can draw its filters seconds after load: one look was a broken
+    # watch on a slow afternoon (2026-10-23), so it waits before saying so.
+    opened = None
+    for _ in range(20):
+        opened = await page.evaluate(f"({FILTER_JS})({json.dumps(button)})")
+        if opened:
+            break
+        await asyncio.sleep(0.5)
     if not opened:
         raise RuntimeError(f"Lenny's Jobs has no '{button}' filter any more")
     options: list[str] = []
