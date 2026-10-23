@@ -2229,7 +2229,8 @@ const Scout = (() => {
     // Hits and fits arrive at any time; redraw only when something moved, and
     // never under the person's cursor in the search box.
     const shown = $("detail").dataset.hits;
-    const sig = allJobs().map((j) => j.band).join("");
+    const sig = (state.watches || []).filter((w) => w.own_tab).map((w) => allJobs(w.id).map((j) => j.band).join("")).join("|")
+      + allJobs().map((j) => j.band).join("");
     const moved = (shown !== undefined && shown !== String(state.hits.length)) || $("detail").dataset.sig !== sig;
     $("detail").dataset.sig = sig;
     if (moved && document.activeElement?.id !== "jobSearch") render();
@@ -2267,10 +2268,11 @@ const Scout = (() => {
 
   // Every listed role once: the same job on Lenny's and on the company's own
   // board is one row with both sources on it.
-  function allJobs() {
+  function allJobs(only) {
+    const keep = (w) => only ? w.id === only : !w.own_tab;
     const queued = new Set((state.hits || []).filter((h) => h.status === "queued").map((h) => `${h.watch_id}|${h.posting.id}`));
     const merged = new Map();
-    for (const w of state.watches || []) {
+    for (const w of (state.watches || []).filter(keep)) {
       for (const r of w.listed || []) {
         const company = r.company || w.company;
         const key = `${company}|${r.title}`.toLowerCase().replace(/[^a-z0-9|]+/g, " ").trim();
@@ -2294,9 +2296,13 @@ const Scout = (() => {
     const broken = ws.filter((w) => w.broken).length;
     $("count").textContent = ws.length ? `${best} best fits · ${jobs.length} open roles` : "";
     const row = (key, label, cov, tone) => `<button class="row" data-view="${key}" data-tone="${tone}"
-        aria-current="${viewing === key || (key === "sources" && viewing && !["jobs", "referrals"].includes(viewing))}">
+        aria-current="${viewing === key || (key === "sources" && viewing && !["jobs", "referrals"].includes(viewing) && !String(viewing).startsWith("tab:"))}">
         <span class="role">${label}</span><span class="cov">${cov}</span></button>`;
-    $("list").innerHTML = row("jobs", "Jobs", `${best} best fits of ${jobs.length}`, "agent")
+    const tabs = ws.filter((w) => w.own_tab).map((w) => {
+      const own = allJobs(w.id);
+      return row(`tab:${w.id}`, escape(w.company), `${own.filter((j) => j.band === "best").length} best fits of ${own.length}`, w.broken ? "stop" : "agent");
+    }).join("");
+    $("list").innerHTML = row("jobs", "Jobs", `${best} best fits of ${jobs.length}`, "agent") + tabs
       + row("referrals", "Referrals", `${toAsk} to ask`, "you")
       + row("sources", "Sources", `${ws.length} websites${broken ? ` · <span class="broken">${broken} broken</span>` : ""}`, broken ? "stop" : "done");
     for (const b of $("list").querySelectorAll("button[data-view]")) b.onclick = () => { viewing = b.dataset.view; render(); };
@@ -2305,9 +2311,11 @@ const Scout = (() => {
   function render() {
     renderNav();
     if (!state) return;
-    const w = !["jobs", "referrals", "sources"].includes(viewing) && state.watches.find((x) => x.id === viewing);
-    if (!w && !["jobs", "referrals", "sources"].includes(viewing)) viewing = "jobs";
+    const tab = viewing.startsWith && viewing.startsWith("tab:") && state.watches.find((x) => `tab:${x.id}` === viewing && x.own_tab);
+    const w = !tab && !["jobs", "referrals", "sources"].includes(viewing) && state.watches.find((x) => x.id === viewing);
+    if (!tab && !w && !["jobs", "referrals", "sources"].includes(viewing)) viewing = "jobs";
     $("detail").dataset.hits = state.hits.length;
+    if (tab) { $("detail").innerHTML = renderJobs(tab); wire(null); return; }
     if (viewing === "jobs") $("detail").innerHTML = renderJobs();
     else if (viewing === "referrals") $("detail").innerHTML = renderHits(null, true);
     else if (viewing === "sources") $("detail").innerHTML = renderSources();
@@ -2315,8 +2323,8 @@ const Scout = (() => {
     wire(viewing === "jobs" || viewing === "referrals" || viewing === "sources" ? null : w);
   }
 
-  function renderJobs() {
-    const jobs = allJobs();
+  function renderJobs(tab) {
+    const jobs = allJobs(tab && tab.id);
     const counts = Object.fromEntries(BANDS.map(([k]) => [k, k === "all" ? jobs.length : jobs.filter((j) => j.band === k).length]));
     const needle = search.toLowerCase();
     const shown = byFit(jobs.filter((j) => (band === "all" || j.band === band)
@@ -2335,7 +2343,8 @@ const Scout = (() => {
         <div class="go">${j.queued ? `<span class="hint">in autopilot</span>` : `<button class="act small primary" data-add-any="${escape(JSON.stringify(j.adds[0]))}">Add</button>`}</div>
       </div>`;
     const LIMIT = 200;
-    return `<div class="head"><h2>Jobs</h2><span class="state agent">${counts.best} best fits</span></div>
+    return `<div class="head"><h2>${tab ? escape(tab.company) : "Jobs"}</h2><span class="state agent">${counts.best} best fits</span>
+        ${tab ? `<span class="hint">· read every ${tab.every_days ? `${tab.every_days} days` : `${tab.checks_per_day_effective}× a day`} · next ${escape(fmt(tab.next_check))}</span>` : ""}</div>
       <div class="bands">${BANDS.map(([k, label]) => `<button class="band ${band === k ? "on" : ""}" data-band="${k}">${label} <b>${counts[k]}</b></button>`).join("")}
         <input type="search" id="jobSearch" placeholder="Filter by title, company, place or source" value="${escape(search)}"></div>
       ${state.watches.some((x) => x.broken) ? `<p class="hint"><span class="broken">Broken</span> ${state.watches.filter((x) => x.broken).map((x) => escape(x.company)).join(", ")} could not be read; see Sources.</p>` : ""}
@@ -2362,7 +2371,7 @@ const Scout = (() => {
       <div class="card"><table class="kv srcs">${ws.map((w) => `<tr data-watch="${w.id}">
           <td><b>${escape(w.company)}</b> <span class="hint">${escape(sourceLabel(w))}</span></td>
           <td>${w.broken ? '<span class="broken">Broken</span>' : !w.enabled ? "paused" : `${w.last_matching} at your level of ${w.last_total}`}</td>
-          <td class="hint">${escape(kind(w))}${w.every_days ? ` · every ${w.every_days} days` : ""} · next ${escape(fmt(w.next_check))}</td></tr>`).join("")}</table></div>
+          <td class="hint">${escape(kind(w))}${w.every_days ? ` · every ${w.every_days} days` : ""}${w.own_tab ? " · own tab" : ""} · next ${escape(fmt(w.next_check))}</td></tr>`).join("")}</table></div>
       <details class="wsettings"><summary>Add a website</summary>${form}</details>
       <details class="wsettings"><summary>Schedule and mail</summary>${schedule}</details>`;
   }
@@ -2454,6 +2463,7 @@ const Scout = (() => {
           <tr><td>Page</td><td><a href="${escape(w.url)}" target="_blank" rel="noopener">${escape(w.url)}</a></td></tr>
           <tr><td>Search text</td><td><textarea id="wQuery" rows="1" style="min-height:2.2rem">${escape(w.query)}</textarea></td></tr>
           <tr><td>Kind</td><td><label class="hint"><input type="checkbox" id="wNotify" ${w.notify ? "checked" : ""}> Notify only: list and mail, I ask for a referral; unticked, new roles go into autopilot</label></td></tr>
+          <tr><td>Tab</td><td><label class="hint"><input type="checkbox" id="wOwnTab" ${w.own_tab ? "checked" : ""}> Own tab: list its roles in a Scout tab of their own, not in Jobs</label></td></tr>
           <tr><td>Where</td><td><label class="hint"><input type="checkbox" id="wUs" ${w.us_only ? "checked" : ""}> US only: a role whose location names another country is dropped before anything else</label></td></tr>
           <tr><td>Referrer</td><td><textarea id="wRef" rows="1" style="min-height:2.2rem">${escape(w.referrer)}</textarea></td></tr>
           <tr><td>Title must have one of</td><td><textarea id="wPos" rows="2">${escape(w.positive.join(", "))}</textarea></td></tr>
@@ -2590,7 +2600,7 @@ const Scout = (() => {
       $("wSave").onclick = () => call(`/scout/watch/${w.id}`, { method: "PATCH", body: JSON.stringify({
         query: $("wQuery").value.trim(), notify: $("wNotify").checked, us_only: $("wUs").checked, referrer: $("wRef").value.trim(), positive: lists("wPos"), negative: lists("wNeg"),
         checks_per_day: $("wFreq").value ? Number($("wFreq").value) : null,
-        every_days: $("wEvery").value ? Number($("wEvery").value) : 0 }) }, $("wNote"), async () => { await refresh(); render(); });
+        every_days: $("wEvery").value ? Number($("wEvery").value) : 0, own_tab: $("wOwnTab").checked }) }, $("wNote"), async () => { await refresh(); render(); });
       $("wVerify").onclick = () => call(`/scout/watch/${w.id}/verify`, { method: "POST" }, $("wNote"), async (out) => {
         await refresh(); render();
         $("wNote").textContent = out.ok ? `${out.total} listed, ${out.matching} at your level` + (out.sample.length ? `: ${out.sample.slice(0, 3).join(" · ")}` : "") : out.error; });

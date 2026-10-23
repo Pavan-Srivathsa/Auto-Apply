@@ -36,6 +36,7 @@ class WatchUpdate(BaseModel):
     referrer: Optional[str] = None
     checks_per_day: Optional[int] = None
     every_days: Optional[int] = None    # 0 clears it
+    own_tab: Optional[bool] = None
     enabled: Optional[bool] = None
     positive: Optional[list[str]] = None
     negative: Optional[list[str]] = None

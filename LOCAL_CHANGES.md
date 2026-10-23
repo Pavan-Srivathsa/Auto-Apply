@@ -375,3 +375,13 @@ are folded; a website's own settings open from there.
 Intent: "keep SpaceX once a week". `Watch.every_days` overrides checks per
 day (1 to 30; 0 or blank turns it off), set in a watch's Settings fold and
 shown in the Sources table. SpaceX's board is set to every 7 days.
+
+## 2026-10-22 — SpaceX trimmed, every two weeks, in a Scout tab of its own
+
+Intent: "reduce spacex jobs", "refresh spacex only once in 2 weeks", "keep
+spacex in a separate tab". SpaceX's own "none of" list now drops embedded,
+kernel, RF, flight, launch, GNC, manufacturing, IT and network infrastructure,
+wireless, satellite, security, Starshield and hardware disciplines (244 roles
+at the level to 101, 66 distinct titles); it is read every 14 days. A watch
+can have its own tab (`Watch.own_tab`, a checkbox in its settings): its roles
+leave the main Jobs list and get a ranked list of their own.

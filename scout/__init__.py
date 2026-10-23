@@ -91,6 +91,7 @@ class Watch(BaseModel):
     negative: list[str] = Field(default_factory=lambda: list(DEFAULT_NEGATIVE))
     checks_per_day: Optional[int] = None       # None = the global setting
     every_days: Optional[int] = None           # check once every N days instead (SpaceX: weekly, 2026-10-22)
+    own_tab: bool = False                      # its roles get a Scout tab of their own, out of the main Jobs list
     enabled: bool = True
     notify: bool = False                       # True: list and mail only, the person asks for a referral; False: hits go into autopilot
     us_only: bool = True                       # drop roles whose location names another country before anything else

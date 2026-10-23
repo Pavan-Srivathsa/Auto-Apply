@@ -96,3 +96,15 @@ def test_a_watch_can_be_checked_once_every_n_days():
               last_checked=(now - timedelta(days=3)).isoformat())
     assert run.interval(w) == 7 * 86400 and not run.due(w, now)
     assert run.due(w.model_copy(update={"last_checked": (now - timedelta(days=8)).isoformat()}), now)
+
+
+def test_a_watch_can_have_its_own_tab():
+    from fastapi.testclient import TestClient
+    from scout import Watch, store
+    from server.app import app
+    w, _ = store.add_watch(Watch(url="https://boards.greenhouse.io/spacex-tab-test", company="SpaceX", provider="greenhouse"))
+    try:
+        r = TestClient(app).patch(f"/scout/watch/{w.id}", json={"own_tab": True})
+        assert r.status_code == 200 and r.json()["own_tab"] is True and store.get_watch(w.id).own_tab
+    finally:
+        store.remove_watch(w.id) if hasattr(store, "remove_watch") else None
