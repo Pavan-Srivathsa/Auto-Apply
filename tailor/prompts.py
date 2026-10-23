@@ -110,6 +110,10 @@ CATALOG: tuple[Prompt, ...] = (
            _const("tailor.reviewer", "PROMPT")),
     Prompt("reviewer.format", "ML/DS bullet reviewer reply format", "Tailoring", FORMAT_NOTE,
            _const("tailor.reviewer", "FORMAT")),
+    Prompt("career.prep", "Interview practice questions", "Tailoring",
+           "The practice questions for a shortlisted job, from its posting. Questions only, never answers; "
+           "the stories they map to are matched in code (career/stories.py).",
+           _const("career.stories", "PREP_PROMPT")),
     Prompt("outreach.followup", "Outreach follow-up", "Tailoring",
            "The follow-up drafted when an email has had no answer for two days. A draft only; "
            "it is sent by your click like the first one.",

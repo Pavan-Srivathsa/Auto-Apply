@@ -918,6 +918,41 @@ function wireOutcome(id) {
     at: $("outAt").value, note: $("outNote").value }) }));
 }
 
+// Interview stories (career/stories.py): the interview's own STAR documents,
+// each figure checked against your words; a story stays a draft until you confirm it.
+Insights.extra.push(["stories", "Interview stories", "verified accomplishments"]);
+Insights.renderers.stories = async () => {
+  const data = await api("/career/stories");
+  const card = (st, suggested) => `<div class="hit"><div class="t"><strong>${escape(st.title)}</strong>
+      <span class="state ${st.status === "verified" ? "go" : "agent"}">${st.status}</span>
+      <span class="hint">${Math.round(st.completeness * 100)}% complete · ${escape(st.source)}</span></div>
+    ${["situation", "task", "action", "result", "lessons"].map((k) => st[k] ? `<p><span class="lbl">${k}</span> ${escape(st[k].slice(0, 600))}${st[k].length > 600 ? "…" : ""}</p>` : "").join("")}
+    <div class="m">${st.technologies.length ? `stack: ${st.technologies.map(escape).join(", ")} · ` : ""}figures confirmed: ${st.figures_confirmed.map(escape).join(", ") || "none"}
+      ${st.figures_unconfirmed.length ? ` · <span class="issue">not in your own words: ${st.figures_unconfirmed.map(escape).join(", ")}</span>` : ""}</div>
+    ${st.questions.length ? `<div class="m">answers: ${st.questions.map(escape).join(" · ")}</div>` : ""}
+    ${suggested ? `<div class="m hint">A draft from the resume's bullets. Tell its story in the Profile interview to make it a real one.</div>`
+      : `<div class="actions"><button class="act" data-story="${escape(st.slug)}" data-verified="${st.status !== "verified"}">${st.status === "verified" ? "Mark as draft" : "Confirm: this is accurate"}</button></div>`}</div>`;
+  $("detail").innerHTML = `<div class="head"><h2>Interview stories</h2><span class="state agent">${data.stories.length} stories</span></div>
+    <p class="hint">Read from your profile interview; nothing here rewrites them. A figure that is in neither your own words nor your resume is flagged. Only confirmed stories count as verified in interview prep.</p>
+    <div class="card">${data.stories.map((st) => card(st, false)).join("") || `<p class="empty">No stories yet. Start the Profile interview.</p>`}</div>
+    ${data.suggestions.length ? `<h3>Roles without a story</h3><div class="card">${data.suggestions.map((st) => card(st, true)).join("")}</div>` : ""}`;
+  for (const b of $("detail").querySelectorAll("[data-story]")) b.onclick = async () => {
+    await api(`/career/stories/${b.dataset.story}/confirm`, { method: "POST", body: JSON.stringify({ verified: b.dataset.verified === "true" }) });
+    Insights.render();
+  };
+};
+
+// Interview prep for one job: its requirements against your stories, what
+// nothing answers, and practice questions from the posting (never answers).
+async function prepHtml(id, refresh) {
+  const p = await api(`/career/jobs/${id}/prep${refresh ? "?refresh=true" : ""}`);
+  return `<p class="hint">Matched by ${escape(p.matched_by)}. ${p.error ? escape(p.error) : ""}</p>
+    <table class="kv">${p.matches.map((m) => `<tr><td>${escape(m.requirement)}</td><td>${m.stories.length ? m.stories.map((st) =>
+      `${escape(st.title)} <span class="hint">${Math.round(st.score * 100)}% · ${st.status}${st.unconfirmed_figures.length ? " · check its figures" : ""}</span>`).join("<br>")
+      : `<span class="issue">no story answers this</span>`}</td></tr>`).join("")}</table>
+    ${p.practice.length ? `<h4>Practice questions</h4><ol>${p.practice.map((q) => `<li>${escape(q.q)} <span class="hint">${escape(q.kind || "")}</span></li>`).join("")}</ol>` : ""}`;
+}
+
 function wireBullets(id) {
   for (const button of document.querySelectorAll("[data-bullet]")) {
     button.onclick = () => act(id, () => api(`/review/${id}/bullets/${button.dataset.bullet}/decision`,
@@ -1110,6 +1145,7 @@ async function show(id) {
     ${fitHtml(data.fit)}
     ${bulletsHtml(data.bullet_review)}
     <div id="outcomeSlot"></div>
+    <h3>Interview prep</h3><div class="card" id="prepSlot"><button class="act" id="prepGo">Prepare: match my stories to this role</button></div>
 
     ${resumeDoc || letterDoc ? `
       <div class="actions">
@@ -1232,6 +1268,11 @@ async function show(id) {
   if ($("fillNow")) $("fillNow").onclick = () => fillAgain(id, "jobright_check");
   if ($("retry")) $("retry").onclick = () => retry(id, data);
   wireBullets(id);
+  if ($("prepGo")) $("prepGo").onclick = async () => {
+    $("prepSlot").innerHTML = `<p class="hint">Matching your stories and reading the posting…</p>`;
+    try { $("prepSlot").innerHTML = await prepHtml(id, false); }
+    catch (err) { $("prepSlot").innerHTML = `<p class="issue">${escape(err.message || String(err))}</p>`; }
+  };
   if (["submitted", "filled", "filling", "approved"].includes(data.status)) outcomeHtml(id).then((html) => {
     if (current === id && $("outcomeSlot")) { $("outcomeSlot").innerHTML = html; wireOutcome(id); }
   });

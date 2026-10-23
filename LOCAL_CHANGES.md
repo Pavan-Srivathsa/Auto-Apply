@@ -295,3 +295,13 @@ policy version, resume and posting is frozen at submission. The Insights tab
 shows the funnel, fit calibration, breakdowns, the weakest step and
 recommendations, each with denominators and 95% intervals and no rate below
 five. Design follows Career-Ops' calibrate/funnel (MIT), reimplemented.
+
+## 2026-10-22 — Interview story bank and job-specific prep
+
+Intent: the person's spec, feature 4. `career/stories.py` reads the profile
+interview's own STAR documents (never rewrites them), checks every figure
+against the candidate's own words and the master resume, tags categories and
+the questions each answers, and keeps a story a draft until the person
+confirms it. Roles with no story get drafts made only of resume bullets.
+Interview prep matches a job's requirements to stories with Jev, lists what
+nothing answers, and asks a model for practice questions only.

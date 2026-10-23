@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from career import analytics
 from career import events as ev
 from career import snapshot
+from career import stories as story_bank
 
 from . import queue
 
@@ -71,3 +72,28 @@ def add_event(job_id: str, body: NewEvent) -> dict:
 @router.get("/report")
 def report(days: Optional[int] = None) -> dict:
     return analytics.report(days=days)
+
+
+@router.get("/stories")
+def stories() -> dict:
+    return {"stories": [story_bank.to_dict(s) for s in story_bank.bank()],
+            "suggestions": [story_bank.to_dict(s) for s in story_bank.suggestions()]}
+
+
+class Confirm(BaseModel):
+    verified: bool = True
+
+
+@router.post("/stories/{slug}/confirm")
+def confirm_story(slug: str, body: Confirm) -> dict:
+    if slug not in {s.slug for s in story_bank.bank()}:
+        raise HTTPException(404, "no such story")
+    return story_bank.confirm(slug, body.verified)
+
+
+@router.get("/jobs/{job_id}/prep")
+def prep(job_id: str, refresh: bool = False) -> dict:
+    try:
+        return story_bank.prep(job_id, refresh)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
