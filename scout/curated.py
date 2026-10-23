@@ -48,6 +48,25 @@ HINTS = {"Factory AI": ["factory", "factoryai"], "Fireworks AI": ["fireworksai",
          "Galileo": ["rungalileo", "galileo"], "Glean": ["gleanwork", "glean"], "Arcade": ["arcade", "arcadedev", "arcade-ai"],
          "Artisan": ["artisan", "artisanai"], "Rogo": ["rogo", "rogodata"], "Lindy": ["lindy", "lindyai"],
          "Harvey": ["harvey", "harveyai"], "Vapi": ["vapi"], "Legora": ["legora", "leya"]}
+# Boards found by hand (2026-10-22) where the name is not the slug, or the
+# company hires through a parent or an ATS the guesses do not reach.
+# `titles`: keep only roles whose title has one of these words (a parent's
+# board lists the parent's roles too).
+OVERRIDES = {
+    "Hightouch": {"provider": "ashby", "slug": "hightouch-inc", "url": "https://jobs.ashbyhq.com/hightouch-inc"},
+    "Hippocratic AI": {"provider": "ashby", "slug": "hippocratic ai", "url": "https://jobs.ashbyhq.com/hippocratic%20ai"},
+    "Langfuse": {"provider": "ashby", "slug": "clickhouse", "url": "https://jobs.ashbyhq.com/clickhouse?for=langfuse",
+                 "parent": "ClickHouse", "titles": ["langfuse"]},
+    "11x": {"provider": "gem", "slug": "11x-ai", "url": "https://jobs.gem.com/11x-ai"},
+    "Lindy": {"provider": "teamtailor", "feed": "https://careers.lindy.ai/jobs.rss", "url": "https://careers.lindy.ai/jobs.rss"},
+}
+# No board Scout can read; said on the page instead of guessed.
+UNSUPPORTED = {
+    "Daytona": "posts its roles as Notion pages (daytona.io/careers); add roles by hand",
+    "Synthflow AI": "hires through Deel (jobs.deel.com/synthflow-ai), mostly in Berlin",
+    "Galileo": "now part of Cisco; its roles are on Cisco's careers site",
+}
+
 # The roles the person is after, ahead of the general Scout defaults.
 POSITIVE = ["applied ai", "ai engineer", "llm", "agent", "machine learning", "ml engineer", "software engineer",
             "backend", "inference", "evaluation", "forward deployed", "solutions engineer", "member of technical staff",
@@ -142,6 +161,13 @@ def _lever(name: str, slug: str, http: httpx.Client) -> Optional[dict]:
 
 def resolve(name: str, http: Optional[httpx.Client] = None, careers_pages: bool = True) -> dict:
     """The company's board, verified, or the slugs tried and why none fit."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if name in OVERRIDES:
+        o = OVERRIDES[name]
+        return {"company": name, "status": "resolved", "open_roles": None, "checked_at": now,
+                "verified_by": "found by hand" + (f": hires through {o['parent']}" if o.get("parent") else ""), **o}
+    if name in UNSUPPORTED:
+        return {"company": name, "status": "unsupported", "note": UNSUPPORTED[name], "checked_at": now, "tried": []}
     own = http is None
     http = http or httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": "Autopilot/1.0"})
     tried = []
@@ -198,24 +224,28 @@ def import_all(companies: Optional[list[str]] = None, check: bool = True, worker
     data = registry()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         resolved = list(pool.map(resolve, companies))
-    existing = {(w.provider, w.args.get("slug")): w for w in store.watches()}
+    existing = {(w.provider, w.args.get("slug") or w.args.get("feed")): w for w in store.watches()}
     created, linked = [], []
     for row in resolved:
         entry = data["companies"].get(row["company"], {}) | row
         if row["status"] == "resolved":
-            prior = existing.get((row["provider"], row["slug"]))
+            board_key = (row["provider"], row.get("slug") or row.get("feed"))
+            prior = existing.get(board_key)
+            if prior is not None and row.get("titles") and not prior.args.get("curated"):
+                prior = None            # a parent's board watched by hand is the parent's; this one filters to the company
             if prior is not None:
                 entry["watch_id"], entry["manual"] = prior.id, not prior.args.get("curated")
                 linked.append(row["company"])
             else:
+                board = {k: row[k] for k in ("slug", "feed") if row.get(k)}
                 watch = Watch(url=row["url"], company=row["company"], provider=row["provider"],
-                              args={"slug": row["slug"], "curated": TAG, "hold": True, "years_min": YEARS_MIN},
-                              positive=POSITIVE)
+                              args=board | {"curated": TAG, "hold": True, "years_min": YEARS_MIN},
+                              positive=row.get("titles") or POSITIVE)
                 watch, made = store.add_watch(watch)
                 entry["watch_id"], entry["manual"] = watch.id, False
                 if made:
                     created.append(watch)
-                existing[(row["provider"], row["slug"])] = watch
+                existing[board_key] = watch
         data["companies"][row["company"]] = entry
     _save(data)
     checked = []
@@ -227,7 +257,8 @@ def import_all(companies: Optional[list[str]] = None, check: bool = True, worker
                 checked.append({"company": watch.company, "error": str(exc)[:160]})
     return {"resolved": sum(1 for r in resolved if r["status"] == "resolved"), "of": len(resolved),
             "created": [w.company for w in created], "linked": linked,
-            "unresolved": [r["company"] for r in resolved if r["status"] != "resolved"], "checked": checked}
+            "unresolved": [r["company"] for r in resolved if r["status"] == "unresolved"],
+            "unsupported": {r["company"]: r["note"] for r in resolved if r["status"] == "unsupported"}, "checked": checked}
 
 
 def inventory() -> dict:

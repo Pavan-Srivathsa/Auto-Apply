@@ -80,3 +80,9 @@ def test_a_curated_watch_judges_a_four_or_five_year_ask_instead_of_ruling_it_out
     assert level.prescreen(text) and "4+ years" in level.prescreen(text)          # every other watch
     assert level.prescreen(text, years_min=6) is None                              # the curated ones
     assert level.prescreen("8+ years of experience", years_min=6)
+
+
+def test_a_region_that_includes_the_us_is_a_us_place():
+    from scout import filter as level
+    assert not level.outside_us("Remote (North America)") and not level.outside_us("Remote - Americas")
+    assert level.outside_us("Remote (Europe)")

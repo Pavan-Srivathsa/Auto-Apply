@@ -172,6 +172,14 @@ def detect(url: str) -> tuple[str, dict, str]:
         if not parts:
             raise DetectError("Ashby URL has no board name")
         return "ashby", {"slug": parts[0]}, parts[0]
+    if host == "jobs.gem.com" or host == "api.gem.com":
+        slug = parts[0] if host == "jobs.gem.com" and parts else (parts[2] if len(parts) > 2 else "")
+        if not slug:
+            raise DetectError("Gem URL has no board name")
+        return "gem", {"slug": slug}, slug
+    if host.endswith("teamtailor.com") or parsed.path.rstrip("/").endswith("/jobs.rss"):
+        feed = f"{parsed.scheme or 'https'}://{host}/jobs.rss"
+        return "teamtailor", {"feed": feed}, host.split(".")[0]
     if host.endswith("bamboohr.com"):
         sub = host.split(".")[0]
         if not sub or sub in ("www", "bamboohr"):

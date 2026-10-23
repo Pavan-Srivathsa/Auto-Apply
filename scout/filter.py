@@ -71,7 +71,9 @@ FOREIGN = [
     "abu dhabi", "saudi", "egypt", "nigeria", "lagos", "kenya", "south africa", "turkey", "istanbul",
     "ukraine", "kyiv", "russia", "moscow", "emea", "apac", "latam",
 ]
-US_WORDS = ["united states", "usa", "u.s.", "us-", "remote - us", "us remote"]
+# A region that includes the US is a US place: "Remote (North America)" dropped
+# every Hightouch role (2026-10-22).
+US_WORDS = ["united states", "usa", "u.s.", "us-", "remote - us", "us remote", "north america", "americas"]
 US_STATES = [
     "alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware",
     "florida", "georgia", "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky",

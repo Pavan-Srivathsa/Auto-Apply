@@ -19,8 +19,8 @@ def isolated(tmp_path, monkeypatch):
 BOARDS = {
     "/posting-api/job-board/acmeai": {"jobs": [{"title": "AI Engineer", "descriptionPlain": "Acme AI builds agents for banks."}]},
     "/posting-api/job-board/acme": {"jobs": [{"title": "Nurse", "descriptionPlain": "Acme Clinic hires nurses."}]},
-    "/v1/boards/galileo": {"name": "Galileo"},
-    "/v1/boards/galileo/jobs": {"jobs": [{"title": "Dermatologist", "content": "Galileo is a clinic."}]},
+    "/v1/boards/hermes": {"name": "Hermes"},
+    "/v1/boards/hermes/jobs": {"jobs": [{"title": "Dermatologist", "content": "Hermes is a clinic."}]},
 }
 
 
@@ -34,7 +34,7 @@ def client():
 def test_a_board_must_name_the_company_and_be_about_ai():
     found = curated.resolve("Acme AI", client(), careers_pages=False)
     assert found["status"] == "resolved" and found["slug"] == "acmeai" and "name the company" in found["verified_by"]
-    monkey = curated.resolve("Galileo", client(), careers_pages=False)          # the board is named Galileo, but hires dermatologists
+    monkey = curated.resolve("Hermes", client(), careers_pages=False)           # the board is named Hermes, but hires dermatologists
     assert monkey["status"] == "unresolved" and monkey["tried"]
 
 
@@ -66,3 +66,28 @@ def test_the_import_is_idempotent_links_a_manual_watch_and_holds(monkeypatch, tm
     assert second["created"] == [] and len(watches) == 2                      # nothing twice
     registry = json.loads(curated.registry_path().read_text())
     assert registry["companies"]["Acme Two"]["manual"] is True
+
+
+def test_a_company_hiring_through_its_parent_is_filtered_to_its_own_roles_and_unsupported_ones_say_why():
+    langfuse = curated.resolve("Langfuse", careers_pages=False)
+    assert langfuse["slug"] == "clickhouse" and langfuse["titles"] == ["langfuse"] and "ClickHouse" in langfuse["verified_by"]
+    daytona = curated.resolve("Daytona", careers_pages=False)
+    assert daytona["status"] == "unsupported" and "Notion" in daytona["note"]
+
+
+def test_gem_and_teamtailor_boards_are_read():
+    import httpx as h
+    from scout import Watch, detect, providers
+    feed = ('<?xml version="1.0"?><rss><channel><item><title>Software Engineer</title>'
+            '<link>https://careers.lindy.ai/jobs/1</link><guid>1</guid><pubDate>Thu, 27 Aug 2026 10:00:00 +0000</pubDate>'
+            '<description>&lt;p&gt;Build agents&lt;/p&gt;</description></item></channel></rss>')
+    gem = [{"id": "g1", "title": "Software Engineer, Agents", "absolute_url": "https://jobs.gem.com/11x-ai/g1",
+            "first_published_at": "2026-09-16T00:00:00Z", "location": {"name": "United States"}, "content_plain": "Agents."}]
+
+    def handler(request):
+        return h.Response(200, text=feed) if request.url.path.endswith("jobs.rss") else h.Response(200, json=gem)
+    client = h.Client(transport=h.MockTransport(handler))
+    for url in ("https://jobs.gem.com/11x-ai", "https://careers.lindy.ai/jobs.rss"):
+        provider, args, _ = detect(url)
+        [row] = providers.fetch(Watch(url=url, provider=provider, args=args), client)
+        assert row.title.startswith("Software Engineer") and row.posted.startswith("2026-0")

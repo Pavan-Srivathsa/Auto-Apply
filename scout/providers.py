@@ -311,11 +311,51 @@ def apple(watch: Watch, http: httpx.Client) -> list[Posting]:
     return out
 
 
+def gem(watch: Watch, http: httpx.Client) -> list[Posting]:
+    """Gem's public job board API (jobs.gem.com/<slug>), no key (2026-10-22, for 11x)."""
+    slug = watch.args["slug"]
+    rows = http.get(f"https://api.gem.com/job_board/v0/{slug}/job_posts/").raise_for_status().json()
+    out = []
+    for j in rows if isinstance(rows, list) else []:
+        location = (j.get("location") or {}).get("name") or ", ".join(
+            o.get("name", "") for o in j.get("offices") or [] if o.get("name"))
+        out.append(Posting(id=str(j.get("id")), title=j.get("title", ""), url=j.get("absolute_url", ""),
+                           location=location or ("Remote" if j.get("location_type") == "remote" else ""),
+                           posted=_date(j.get("first_published_at") or j.get("created_at")),
+                           text=j.get("content_plain") or strip_html(j.get("content") or "")))
+    out.sort(key=lambda p: p.posted, reverse=True)
+    return out
+
+
+def _rss_date(value) -> str:
+    from email.utils import parsedate_to_datetime
+    try:
+        return parsedate_to_datetime(value).strftime("%Y-%m-%d")
+    except (TypeError, ValueError):
+        return ""
+
+
+def teamtailor(watch: Watch, http: httpx.Client) -> list[Posting]:
+    """A Teamtailor career site's RSS feed (`<site>/jobs.rss`), no key (2026-10-22, for Lindy)."""
+    import xml.etree.ElementTree as ET
+    feed = watch.args["feed"]
+    root = ET.fromstring(http.get(feed).raise_for_status().text)
+    out = []
+    for item in root.iter("item"):
+        link = (item.findtext("link") or "").strip()
+        places = [el.text or "" for el in item.iter() if el.tag.endswith("city") or el.tag.endswith("location")]
+        out.append(Posting(id=(item.findtext("guid") or link).strip(), title=(item.findtext("title") or "").strip(),
+                           url=link, location=", ".join(p.strip() for p in places if p.strip())[:120],
+                           posted=_rss_date(item.findtext("pubDate")), text=strip_html(item.findtext("description") or "")))
+    out.sort(key=lambda p: p.posted, reverse=True)
+    return out
+
+
 PROVIDERS: dict[str, Callable[[Watch, httpx.Client], list[Posting]]] = {
     "greenhouse": greenhouse, "lever": lever, "ashby": ashby, "bamboohr": bamboohr, "workday": workday,
     "smartrecruiters": smartrecruiters, "oracle": oracle, "eightfold": eightfold,
     "google": google, "amazon": amazon, "apple": apple, "lennys": lennys.fetch,
-    "a16z": a16z.fetch, "yc": yc.fetch,
+    "a16z": a16z.fetch, "yc": yc.fetch, "gem": gem, "teamtailor": teamtailor,
 }
 
 

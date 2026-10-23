@@ -337,3 +337,13 @@ Intent: the Lenny's watch went BROKEN ("'Job category' has no option
 single-select list of plain buttons, defaulting to Product Management. The
 reader now presses the wanted option and checks the trigger reads it back;
 the checkbox path stays for Level.
+
+## 2026-10-22 — The rest of the curated list, Gem and Teamtailor boards, North America is US
+
+Intent: "lets work on this" on the eight unresolved companies. Found by hand:
+Hightouch (Ashby `hightouch-inc`), Hippocratic AI (Ashby `hippocratic ai`),
+Langfuse (ClickHouse's Ashby board, filtered to Langfuse titles), 11x (Gem)
+and Lindy (Teamtailor). Two small providers read Gem's public API and a
+Teamtailor RSS feed. Daytona (Notion), Synthflow (Deel, Berlin) and Galileo
+(now Cisco) are recorded as unsupported with the reason. "North America" and
+"Americas" now count as US places: they had dropped every Hightouch role.
