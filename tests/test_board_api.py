@@ -141,3 +141,14 @@ def test_fetch_asks_the_board_before_it_reads_the_page(monkeypatch):
         raise AssertionError("the page was fetched anyway")
     monkeypatch.setattr(httpx, "Client", never)
     assert fetch.fetch("https://jobs.lever.co/hive/x").text == "from the board"
+
+
+def test_a_gem_posting_is_read_from_its_api_not_its_javascript_page():
+    import httpx as h
+    from tailor import boards
+    url = "https://jobs.gem.com/11x-ai/am9icG9zdDq8eyEoxWtqrxn_tFsQLKau"
+    assert boards.identify(url).system == "gem"
+    client = h.Client(transport=h.MockTransport(lambda r: h.Response(200, json={
+        "title": "Software Engineer, Agents", "content_plain": "Build agents. " * 40, "location": {"name": "United States"}})))
+    found = boards.posting(url, client)
+    assert found.title == "Software Engineer, Agents" and found.authoritative and "agents" in found.text.lower()

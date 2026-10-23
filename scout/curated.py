@@ -267,7 +267,7 @@ def inventory() -> dict:
     from scout import store
     data = registry()
     watches = {w.id: w for w in store.watches()}
-    order = {"qualified": 0, "stretch": 1, "": 2, "unknown": 3, "not_qualified": 4}
+    order = {"qualified": 0, "": 1, "unknown": 2, "stretch": 3, "not_qualified": 4}   # good matches first, stretch and not qualified last
     roles, companies = [], []
     for name, entry in sorted(data["companies"].items()):
         watch = watches.get(entry.get("watch_id", ""))
@@ -281,5 +281,6 @@ def inventory() -> dict:
                           "listed": len(watch.listed) if watch else 0, "total": watch.last_total if watch else 0})
         for row in (watch.listed if watch else []):
             roles.append(row | {"company": name, "watch_id": watch.id})
-    roles.sort(key=lambda r: (order.get((r.get("fit") or {}).get("verdict", ""), 2), r.get("posted", "") or ""), reverse=False)
+    roles.sort(key=lambda r: r.get("posted") or "", reverse=True)                      # newest first inside a group
+    roles.sort(key=lambda r: order.get((r.get("fit") or {}).get("verdict", ""), 1))
     return {"tag": TAG, "companies": companies, "roles": roles}

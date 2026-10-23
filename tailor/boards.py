@@ -48,6 +48,8 @@ GREENHOUSE = "https://boards-api.greenhouse.io/v1/boards/{org}/jobs/{job}"
 LEVER = "https://api.lever.co/v0/postings/{org}/{job}"
 ASHBY = "https://api.ashbyhq.com/posting-api/job-board/{org}?includeCompensation=true"
 WORKDAY = "https://{host}/wday/cxs/{tenant}/{site}{path}"
+# Gem's job pages draw their text in the browser; its API does not (2026-10-22, 11x).
+GEM = "https://api.gem.com/job_board/v0/{org}/job_posts/{job}"
 
 _UUID = r"[0-9a-fA-F-]{36}"
 
@@ -89,6 +91,10 @@ def identify(url: str) -> Optional[Board]:
     if "ashbyhq.com" in host:
         found = re.match(rf"^/([^/]+)/({_UUID})", path)
         return Board("ashby", found.group(1), found.group(2)) if found else None
+
+    if host == "jobs.gem.com":
+        found = re.match(r"^/([^/]+)/([A-Za-z0-9_-]{12,})", path)
+        return Board("gem", found.group(1), found.group(2)) if found else None
 
     if "myworkdayjobs.com" in host:
         # `/<site>/job/<place>/<title>_<id>`, with an optional `/en-US` in
@@ -160,11 +166,21 @@ def _workday(board: Board, client: httpx.Client) -> Optional[Posting]:
                    location=info.get("location") or "")
 
 
+def _gem(board: Board, client: httpx.Client) -> Optional[Posting]:
+    data = client.get(GEM.format(org=board.org, job=board.job)).raise_for_status().json()
+    text = data.get("content_plain") or _text(data.get("content"))
+    if not text:
+        return None
+    location = (data.get("location") or {}).get("name") or ""
+    return Posting(url="", text=text, title=data.get("title") or "", location=location)
+
+
 READERS: dict[str, Callable[[Board, httpx.Client], Optional[Posting]]] = {
     "greenhouse": _greenhouse,
     "lever": _lever,
     "ashby": _ashby,
     "workday": _workday,
+    "gem": _gem,
 }
 
 

@@ -2307,12 +2307,32 @@ const Scout = (() => {
       </div>`;
   }
 
+  // Good matches on top; roles still being checked next; stretch, then
+  // not qualified, at the bottom. Newest first inside each group.
+  function byFit(rows, fitOf, dateOf) {
+    const rank = (f) => ({ qualified: 0, "": 1, unknown: 2, stretch: 3, not_qualified: 4 })[(f && f.verdict) || ""] ?? 1;
+    return [...rows].sort((a, b) => rank(fitOf(a)) - rank(fitOf(b)) || String(dateOf(b) || "").localeCompare(String(dateOf(a) || "")));
+  }
+
+  // The watch's settings stay folded unless the person opened them; the
+  // choice is remembered, so the roles are what the page shows first.
+  function scoutSettingsOpen() {
+    try { return localStorage.getItem("scoutSettingsOpen") === "1"; } catch (_) { return false; }
+  }
+
   function renderWatch(w) {
     return `
       <div class="head"><h2>${escape(w.company)}</h2></div>
       ${w.broken ? `<div class="banner stop" style="font-size:15px"><span class="broken">Broken</span> <b>This company does not work.</b> ${escape(w.error)}</div>` :
         `<p class="hint">${w.provider} · ${w.last_total} roles listed, ${w.last_matching} at your level ·
          checked ${escape(fmt(w.last_checked))} · next ${escape(fmt(w.next_check))}</p>`}
+      <div class="actions">
+        <button class="act" id="wCheck">Check now</button>
+        <button class="act" id="wPause">${w.enabled ? "Pause" : "Resume"}</button>
+        <span class="hint" id="wNote"></span>
+      </div>
+      <details class="wsettings" ${scoutSettingsOpen() ? "open" : ""}>
+        <summary>Settings · search text, kind, titles, checks per day</summary>
       <div class="card" style="padding:.6rem 1rem">
         <table class="kv">
           <tr><td>Page</td><td><a href="${escape(w.url)}" target="_blank" rel="noopener">${escape(w.url)}</a></td></tr>
@@ -2327,12 +2347,10 @@ const Scout = (() => {
         <div class="actions">
           <button class="act primary" id="wSave">Save</button>
           <button class="act" id="wVerify">Verify</button>
-          <button class="act" id="wCheck">Check now</button>
-          <button class="act" id="wPause">${w.enabled ? "Pause" : "Resume"}</button>
           <button class="act danger" id="wDel">Stop watching</button>
-          <span class="hint" id="wNote"></span>
         </div>
-      </div>`;
+      </div>
+      </details>`;
   }
 
   // Am I qualified, worked out in Scout: a verdict, its one line, and the
@@ -2349,7 +2367,7 @@ const Scout = (() => {
   }
 
   function renderListed(w) {
-    const rows = w.listed || [];
+    const rows = byFit(w.listed || [], (r) => r.fit, (r) => r.posted);
     const queued = new Set((state.hits || []).filter((h) => h.watch_id === w.id && h.status === "queued").map((h) => h.posting.id));
     const card = (r) => `
       <div class="hit ${queued.has(r.id) ? "done" : ""}">
@@ -2368,7 +2386,8 @@ const Scout = (() => {
     const auto = w ? !w.notify : !notify;
     // On the autopilot side the queued ones are the news; on the referral
     // side the new ones are, since those need the person.
-    const fresh = hits.filter((h) => auto ? h.status !== "dismissed" : h.status === "new");
+    const fresh = byFit(hits.filter((h) => auto ? h.status !== "dismissed" : h.status === "new"),
+                        (h) => h.fit, (h) => h.posting.posted || h.found_at);
     const rest = hits.filter((h) => !fresh.includes(h));
     const card = (h) => `
       <div class="hit ${h.status !== "new" ? "done" : ""}" data-hit="${h.id}">
@@ -2435,6 +2454,8 @@ const Scout = (() => {
       $("wVerify").onclick = () => call(`/scout/watch/${w.id}/verify`, { method: "POST" }, $("wNote"), async (out) => {
         await refresh(); render();
         $("wNote").textContent = out.ok ? `${out.total} listed, ${out.matching} at your level` + (out.sample.length ? `: ${out.sample.slice(0, 3).join(" · ")}` : "") : out.error; });
+      const folded = document.querySelector(".wsettings");
+      if (folded) folded.ontoggle = () => { try { localStorage.setItem("scoutSettingsOpen", folded.open ? "1" : "0"); } catch (_) {} };
       $("wCheck").onclick = () => call(`/scout/watch/${w.id}/check`, { method: "POST" }, $("wNote"), async (out) => {
         await refresh(); render();
         $("wNote").textContent = out.ok ? `${out.new} new` + (out.mail?.sent ? ", mailed" : "") : out.error; });

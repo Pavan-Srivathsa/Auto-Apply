@@ -279,10 +279,11 @@ def curated_view() -> dict:
 @router.get("/discovery")
 def discovery(limit: int = 300) -> dict:
     """Every role every watch lists now, ranked by fit, with its freshness."""
-    order = {"qualified": 0, "stretch": 1, "": 2, "unknown": 3, "not_qualified": 4}
+    order = {"qualified": 0, "": 1, "unknown": 2, "stretch": 3, "not_qualified": 4}   # good matches first, stretch and not qualified last
     rows = [row | {"company": row.get("company") or w.company, "watch_id": w.id, "curated": bool(w.args.get("curated"))}
             for w in store.watches() for row in w.listed]
-    rows.sort(key=lambda r: (order.get((r.get("fit") or {}).get("verdict", ""), 2), -(len(r.get("posted") or ""))))
+    rows.sort(key=lambda r: r.get("posted") or "", reverse=True)                       # newest first inside a group
+    rows.sort(key=lambda r: order.get((r.get("fit") or {}).get("verdict", ""), 1))
     return {"roles": rows[:limit], "total": len(rows)}
 
 

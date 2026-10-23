@@ -347,3 +347,13 @@ and Lindy (Teamtailor). Two small providers read Gem's public API and a
 Teamtailor RSS feed. Daytona (Notion), Synthflow (Deel, Berlin) and Galileo
 (now Cisco) are recorded as unsupported with the reason. "North America" and
 "Americas" now count as US places: they had dropped every Hightouch role.
+
+## 2026-10-22 — Scout lists good matches first, settings folded; 11x postings read from Gem
+
+Intent: "whatever is a good match, put them on top; not a good fit, stretch at
+the bottom", and the watch settings (search text, kind, titles, checks per
+day) folded so the roles show without scrolling. Qualified first, then roles
+still being checked, then stretch, then not qualified; newest first inside
+each. The Settings fold remembers whether it was opened. And "why did 11x not
+work": its watch read, but Gem's job pages draw their text in JavaScript, so
+every fit was "unknown". `tailor/boards.py` reads a Gem posting from its API.
