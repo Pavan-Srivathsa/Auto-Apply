@@ -21,6 +21,7 @@ from typing import Optional
 
 import paths
 from scout import Posting, store
+from scout import filter as level
 
 log = logging.getLogger("autopilot.scout.fit")
 
@@ -69,7 +70,8 @@ def pending() -> list[tuple[str, str, dict]]:
         if not watch.enabled:
             continue
         for row in watch.listed:
-            if not row.get("fit"):
+            # A role older than a week is not worth a model call (2026-10-23).
+            if not row.get("fit") and not level.too_old(row.get("posted", "")):
                 rows.append((watch.id, row.get("company") or watch.company, row))
     rows.sort(key=lambda item: item[2].get("posted") or "", reverse=True)
     return rows

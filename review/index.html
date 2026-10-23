@@ -160,6 +160,8 @@
   .job .fitline { margin-top: .25rem; }
   .fitline .score { display: inline-block; min-width: 5.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .src-chip { display: inline-block; border: 1px solid var(--line); padding: 0 .35rem; margin-left: .35rem; font-size: 11px; color: var(--muted); }
+  .age.fresh { color: var(--green); font-weight: 700; }
+  .src-chip.rep { border-color: var(--warn, #b8860b); color: var(--warn, #b8860b); }
   .hit .company { color: var(--muted); margin-left: .35rem; font-size: 13px; }
   table.tracker tr[data-job] { cursor: pointer; } table.tracker tr[data-job]:hover td { background: var(--line); }
   table.tracker td { vertical-align: top; font-size: 13px; }
@@ -2348,7 +2350,7 @@ const Scout = (() => {
 
   function sourceLabel(w) {
     if (w.args && w.args.curated) return "AI startups";
-    if (["lennys", "a16z", "yc"].includes(w.provider)) return w.company;
+    if (["lennys", "a16z", "yc", "simplify", "jobright"].includes(w.provider)) return w.company;
     return `${w.provider} board`;
   }
 
@@ -2361,10 +2363,13 @@ const Scout = (() => {
     for (const w of (state.watches || []).filter(keep)) {
       for (const r of w.listed || []) {
         if (r.in_autopilot) continue;            // it lives under Applied now
+        if (r.age_days != null && r.age_days > 7) continue;   // older than a week: not worth applying (2026-10-23)
         const company = r.company || w.company;
         const key = `${company}|${r.title}`.toLowerCase().replace(/[^a-z0-9|]+/g, " ").trim();
-        const row = merged.get(key) || { ...r, company, sources: [], adds: [], queued: false };
+        const row = merged.get(key) || { ...r, company, sources: [], adds: [], queued: false, notes: [] };
         row.sources.push(sourceLabel(w));
+        if (r.note) row.notes.push(r.note);
+        if (r.age_days != null && (row.age_days == null || r.age_days < row.age_days)) row.age_days = r.age_days;
         row.adds.push({ watch: w.id, id: r.id });
         row.queued = row.queued || queued.has(`${w.id}|${r.id}`);
         if (!row.fit && r.fit) row.fit = r.fit;
@@ -2372,7 +2377,15 @@ const Scout = (() => {
         merged.set(key, row);
       }
     }
-    return [...merged.values()].map((r) => ({ ...r, sources: [...new Set(r.sources)], band: bandOf(r.fit) }));
+    // A role that shows up more than once is flagged, never hidden: the same
+    // job on several lists, or a near twin (same company, same title once
+    // levels, years and brackets are taken off).
+    const twin = (r) => `${r.company}|${r.title}`.toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]|\b(i{1,3}|iv|\d{4}|new grad|early career|remote|us)\b/g, "")
+      .replace(/[^a-z0-9|]+/g, " ").trim();
+    const rows = [...merged.values()];
+    const twins = rows.reduce((m, r) => m.set(twin(r), (m.get(twin(r)) || 0) + 1), new Map());
+    return rows.map((r) => ({ ...r, sources: [...new Set(r.sources)], notes: [...new Set(r.notes)], band: bandOf(r.fit),
+      repeated: new Set(r.sources).size > 1 || r.adds.length > 1, twin: twins.get(twin(r)) > 1 }));
   }
 
   function renderNav() {
@@ -2417,20 +2430,27 @@ const Scout = (() => {
     const jobs = allJobs(tab && tab.id);
     const counts = Object.fromEntries(BANDS.map(([k]) => [k, k === "all" ? jobs.length : jobs.filter((j) => j.band === k).length]));
     const needle = search.toLowerCase();
+    // Today to three days old first, then the rest of the week, then roles
+    // with no readable date; decreasing fit inside each.
+    const tier = (j) => j.age_days == null ? 2 : j.age_days <= 3 ? 0 : 1;
     const shown = byFit(jobs.filter((j) => (band === "all" || j.band === band)
       && (!needle || `${j.title} ${j.company} ${j.location || ""} ${j.sources.join(" ")}`.toLowerCase().includes(needle))),
-      (j) => j.fit, (j) => j.posted);
+      (j) => j.fit, (j) => j.posted).sort((a, b) => tier(a) - tier(b));
     const when = (p) => String(p || "").replace(/^posted\s+/i, "");
     const card = (j) => `
       <div class="hit job ${j.queued ? "done" : ""}">
         <div class="t"><a href="${escape(j.url)}" target="_blank" rel="noopener">${escape(j.title)}</a>
           <span class="company">${escape(j.company)}</span></div>
-        <div class="m">${escape(j.location || "")}${j.posted ? ` · ${escape(when(j.posted))}` : ""}
+        <div class="m">${escape(j.location || "")} · <span class="age ${j.age_days != null && j.age_days <= 3 ? "fresh" : ""}">${j.age_days == null ? "date unknown" : j.age_days === 0 ? "today" : j.age_days === 1 ? "yesterday" : `${j.age_days} days ago`}</span>
+          ${j.repeated ? `<span class="src-chip rep" title="Listed by more than one source">repeated</span>` : ""}${j.twin ? `<span class="src-chip rep" title="Another listing with nearly the same title at this company">possible repeat</span>` : ""}
+          ${j.notes.map((n) => `<span class="src-chip">${escape(n)}</span>`).join("")}
           ${j.sources.map((x) => `<span class="src-chip">${escape(x)}</span>`).join("")}
           ${j.freshness && j.freshness.label !== "open" && j.freshness.label !== "fresh" ? `<span class="src-chip" title="${escape((j.freshness.evidence || []).join("; "))}">${escape(j.freshness.label.replace("_", " "))}</span>` : ""}
 </div>
         <div>${fitBlock(j.fit)}</div>
-        <div class="go">${j.queued ? `<span class="hint">in autopilot</span>` : `<button class="act small primary" data-add-any="${escape(JSON.stringify(j.adds[0]))}">Add</button>`}</div>
+        <div class="go">${j.queued ? `<span class="hint">in autopilot</span>`
+          : /jobright\.ai/.test(j.url) ? `<a class="act small primary" href="${escape(j.url)}" target="_blank" rel="noopener" title="Opens on Jobright; the banner screens it and its Apply queues the employer's form">Open on Jobright</a>`
+          : `<button class="act small primary" data-add-any="${escape(JSON.stringify(j.adds[0]))}">Add</button>`}</div>
       </div>`;
     const LIMIT = 200;
     return `<div class="head"><h2>${tab ? escape(tab.company) : "Jobs"}</h2><span class="state agent">${counts.best} best fits</span>

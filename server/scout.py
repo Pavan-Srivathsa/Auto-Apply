@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from scout import DetectError, Watch, detect, mail, providers, run, store
+from scout import filter as level
 from server import settings
 
 router = APIRouter(prefix="/scout")
@@ -74,6 +75,7 @@ def get_status() -> dict:
     rows = [watch_row(w) for w in watches]
     for row in rows:
         for r in row.get("listed", []):
+            r["age_days"] = level.age_days(r.get("posted", ""))
             mark = by_url.get(tracker._canonical(r["url"])) or by_name.get(tracker._key(r.get("company") or row["company"], r["title"]))
             if mark:
                 r["in_autopilot"] = mark

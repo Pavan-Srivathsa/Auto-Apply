@@ -241,3 +241,42 @@ def prescreen(text: str, years_min: int | None = None) -> str | None:
     if _CITIZEN.search(text):
         return "US citizenship required"
     return None
+
+
+# ---------------------------------------------------------------- freshness
+# "Only the jobs open in the past week; prioritize today, yesterday and the
+# day before" (2026-10-23). Every source writes its date its own way.
+MAX_AGE_DAYS = 7
+FRESH_DAYS = 3
+
+
+def age_days(posted: str, today=None) -> int | None:
+    """Days since the role was posted, from an ISO date or a board's own words
+    ("Posted Yesterday", "Posted 8 Days Ago", "30+ Days Ago", "Today");
+    None when it cannot be read."""
+    from datetime import date
+    today = today or date.today()
+    text = (posted or "").strip()
+    if not text:
+        return None
+    iso = re.match(r"^(\d{4}-\d{2}-\d{2})", text)
+    if iso:
+        try:
+            return max(0, (today - date.fromisoformat(iso.group(1))).days)
+        except ValueError:
+            return None
+    low = text.lower()
+    if "today" in low or "just" in low or re.search(r"\b(hour|minute)s?\b", low):
+        return 0
+    if "yesterday" in low:
+        return 1
+    found = re.search(r"(\d+)\+?\s*(day|week|month)s?", low)
+    if found:
+        return int(found.group(1)) * {"day": 1, "week": 7, "month": 30}[found.group(2)]
+    return None
+
+
+def too_old(posted: str, today=None) -> bool:
+    """Older than a week by its own date. An unreadable date is not too old."""
+    age = age_days(posted, today)
+    return age is not None and age > MAX_AGE_DAYS

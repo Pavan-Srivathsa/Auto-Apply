@@ -14,8 +14,11 @@ def isolated(tmp_path, monkeypatch):
 
 
 def rows(*ids):
+    # Dated in the past week, newest for the highest id: the week rule skips
+    # anything older (2026-10-23), and ordering is newest first.
+    from datetime import date, timedelta
     return [Posting(id=str(i), title=f"Software Engineer {i}", url=f"https://x/{i}", location="Austin, TX",
-                    posted=f"2026-10-{10 + i:02d}") for i in ids]
+                    posted=(date.today() - timedelta(days=5 - i)).isoformat()) for i in ids]
 
 
 def held(monkeypatch, listed):
@@ -66,3 +69,12 @@ def test_a_fit_written_during_a_check_survives_the_lists_rewrite(monkeypatch):
     run.check(watch)                                     # the stale watch object: the store's fits still win
     row = next(r for r in store.get_watch(watch.id).listed if r["id"] == "1")
     assert row["fit"]["verdict"] == "stretch"
+
+
+
+def test_a_role_older_than_a_week_is_never_scored(monkeypatch):
+    from datetime import date, timedelta
+    listed = rows(1) + [Posting(id="old", title="Software Engineer old", url="https://x/old", location="Austin, TX",
+                                posted=(date.today() - timedelta(days=12)).isoformat())]
+    held(monkeypatch, listed)
+    assert [r["id"] for _, _, r in fitter.pending()] == ["1"]

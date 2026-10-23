@@ -442,3 +442,19 @@ leaves out roles already in Autopilot; its Applied tab (career/tracker.py)
 lists every job put into Autopilot with location, posted, found and applied
 dates, where it stands (the outcome ledger, rejections from mail, replies)
 and the outreach the reply watcher keeps current.
+
+## 2026-10-23 — Simplify and Jobright as sources; the past week only; repeats flagged
+
+Intent: "check a job right under Recommended and Top Fit, and the GitHub repo
+simplified.jobs for new grad roles... flag a repeated one", "only the jobs
+open in the past week, prioritize today, yesterday and the day before", and
+"don't use any information from Jobright, just take the top fit and the
+recommended jobs". `scout/simplify.py` reads Simplify's New-Grad listings
+(active, Software and AI/ML/Data, past 7 days). `scout/jobright.py` reads
+Jobright's Recommended and Top Matched lists in Autopilot's Chrome and keeps
+only which list a role was on; Autopilot scores it itself, and a Jobright row
+opens on Jobright, where the banner flow queues it. `filter.age_days` reads
+every source's date; roles older than a week leave the Jobs list, are not
+scored and are not queued; today to three days old come first. A role on
+more than one list, or a near twin at the same company, is labelled, never
+hidden. Both new watches hold.

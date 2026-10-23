@@ -91,7 +91,7 @@ def next_check(watch: Watch) -> Optional[str]:
 def listed_row(p: Posting) -> dict:
     """What the page shows for a role at the level: no description."""
     return {"id": p.id, "title": p.title, "url": p.url, "location": p.location, "posted": p.posted,
-            "company": p.company}
+            "company": p.company, "note": p.note}
 
 
 def _keep_fit(row: dict, fits: dict[str, dict]) -> dict:
@@ -314,7 +314,8 @@ def _check(watch: Watch, screen: bool) -> dict:
         # dozens a day, and the person chose to pick from it (2026-10-22).
         if not watch.notify and not watch.args.get("hold"):
             for hit in added:
-                if hit.verdict in QUEUE_VERDICTS and hit.fit.get("verdict") in FIT_QUEUES:
+                if hit.verdict in QUEUE_VERDICTS and hit.fit.get("verdict") in FIT_QUEUES \
+                        and not level.too_old(hit.posting.get("posted", "")):
                     try:
                         queue_hit(hit.id)
                         queued.append(hit.id)

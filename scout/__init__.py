@@ -43,6 +43,7 @@ class Posting:
     posted: str = ""      # ISO date when the provider says, else ""
     text: str = ""
     company: str = ""     # set by boards that list many employers (Lenny's Jobs)
+    note: str = ""        # what the source itself says about the role (Jobright: which list, its match)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -174,6 +175,12 @@ def detect(url: str) -> tuple[str, dict, str]:
         if not parts:
             raise DetectError("Ashby URL has no board name")
         return "ashby", {"slug": parts[0]}, parts[0]
+    if host.endswith("jobright.ai") and "recommend" in parsed.path:
+        from scout import jobright
+        return "jobright", {"sorts": list(jobright.SORTS), "days": jobright.DAYS, "hold": True}, "Jobright"
+    if host in ("github.com", "simplify.jobs") and ("new-grad" in parsed.path.lower() or host == "simplify.jobs"):
+        from scout import simplify
+        return "simplify", {"categories": list(simplify.CATEGORIES), "days": simplify.DAYS, "hold": True}, "Simplify New Grad"
     if host == "jobs.gem.com" or host == "api.gem.com":
         slug = parts[0] if host == "jobs.gem.com" and parts else (parts[2] if len(parts) > 2 else "")
         if not slug:
