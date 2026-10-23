@@ -1037,6 +1037,27 @@ Insights.renderers.system = async () => {
       <span>drafts <strong>${o.drafts}</strong></span><span>sent by you <strong>${o.sent}</strong></span><span>failed <strong>${o.failed}</strong></span></div></div>`;
 };
 
+// Skills employers ask for (career/skills.py): demand, your gaps, and the
+// skills that come together for each kind of role. No model; rebuilt on read.
+Insights.extra.push(["skills", "Skills in demand", "what roles ask for, what you lack"]);
+Insights.renderers.skills = async () => {
+  const k = await api("/career/skills");
+  const fam = (f) => f.replace("_", " ");
+  const bar = (s) => `<span class="hint">have ${s.have} · partly ${s.partly} · <span style="color:var(--red)">missing ${s.missing}</span></span>`;
+  $("detail").innerHTML = `<div class="head"><h2>Skills in demand</h2><span class="state agent">${k.roles} roles read</span></div>
+    <p class="hint">From every role Autopilot has judged (${k.sources.scout || 0} from Scout, ${k.sources.application || 0} applications), each requirement already marked met, partly or missing against your resume and stories. Counted once per role. Soft skills and degrees are counted but kept out of the gaps.</p>
+    <h3>Most asked for that you lack</h3><div class="card"><table class="kv">${k.missing_most.map((s) =>
+      `<tr><td><b>${escape(s.skill)}</b> <span class="hint">${escape(s.group)}</span></td><td>${s.roles} roles</td><td>${bar(s)}</td></tr>`).join("")}</table></div>
+    <h3>Skill sets by kind of role</h3>${Object.entries(k.by_family).sort((a, b) => b[1].roles - a[1].roles).map(([f, b]) => `
+      <div class="card" style="padding:.6rem 1rem;margin-bottom:.6rem"><p><b>${escape(fam(f))}</b> <span class="hint">${b.roles} roles</span></p>
+        <p>${b.top.map((t) => `<span class="src-chip" style="margin:0 .3rem .3rem 0">${escape(t.skill)} ${Math.round(t.share * 100)}%</span>`).join("")}</p>
+        ${b.together.length ? `<p class="hint">Asked together: ${b.together.slice(0, 6).map((x) => `${x.skills.map(escape).join(" + ")} (${x.roles})`).join(" · ")}</p>` : ""}</div>`).join("")}
+    <h3>Every skill, by demand</h3><div class="card"><table class="kv">${k.skills.map((s) =>
+      `<tr><td><b>${escape(s.skill)}</b> <span class="hint">${escape(s.group)}</span></td><td>${s.roles} roles · required in ${s.required}</td><td>${bar(s)}</td></tr>`).join("")}</table></div>
+    <h3>By group</h3><div class="card"><table class="kv">${k.groups.map((g) => `<tr><td>${escape(g.group)}</td><td>${g.roles} asks across ${g.skills} skills</td><td><span class="hint">missing ${g.missing || 0} · partly ${g.partly || 0}</span></td></tr>`).join("")}</table></div>
+    ${k.unrecognized.length ? `<details><summary>Frequent words no skill matched (${k.unrecognized.length})</summary><p class="hint">${k.unrecognized.map((u) => `${escape(u.term)} ${u.count}`).join(" · ")}</p></details>` : ""}`;
+};
+
 function wireBullets(id) {
   for (const button of document.querySelectorAll("[data-bullet]")) {
     button.onclick = () => act(id, () => api(`/review/${id}/bullets/${button.dataset.bullet}/decision`,

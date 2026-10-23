@@ -418,3 +418,14 @@ Intent: "so that I don't need to travel all the way to the right-bottom corner".
 The decision bar (Apply / Open the filled form / Try again, then the rest) is
 moved under the job's title on the left and stays at the top while the page
 scrolls, once per job; the duplicate Delete on stopped jobs is gone.
+
+## 2026-10-23 — Skills in demand: counts, gaps and the skills that come together
+
+Intent: "keep a repository of all the skills missing from my resume... count how
+many times each has been seen... group similar ones... which skills come
+together for one role". `career/skills.py` reads every judged role's
+requirement lines (Scout fits and applications, already marked meets / partly
+/ missing), finds skills with a curated taxonomy of ~90 skills in 15 groups,
+counts them once per role, ranks the ones the person lacks, and finds pairs
+that come together per role family by lift. Rebuilt on read; a dated snapshot
+in `data/skills/history.json` keeps the trend. Insights → Skills in demand.

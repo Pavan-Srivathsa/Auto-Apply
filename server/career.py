@@ -97,3 +97,12 @@ def prep(job_id: str, refresh: bool = False) -> dict:
         return story_bank.prep(job_id, refresh)
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@router.get("/skills")
+def skills_view(rebuild: bool = True) -> dict:
+    """The skills employers ask for, the person's gaps, and the skills that
+    come together per role family (career/skills.py). Rebuilt from the
+    judged roles on every read; it takes well under a second."""
+    from career import skills
+    return skills.build() if rebuild else (skills.load() or skills.build())
