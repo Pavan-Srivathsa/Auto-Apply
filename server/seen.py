@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, urlsplit
 
+import identity
+from identity import sources as identity_sources
 from archive import store
 from tailor import quality
 
@@ -191,8 +193,9 @@ def _expired(item: Known) -> bool:
     return datetime.now(timezone.utc) - then > timedelta(days=REJECT_TTL_DAYS)
 
 
-def find(url: str, title: str = "", company: str = "", text: str = "") -> Optional[Match]:
-    """The best match for this page, or None."""
+def _find_by_scan(url: str, title: str = "", company: str = "", text: str = "") -> Optional[Match]:
+    """The original answer: every row scanned, four signals. The fallback for
+    a lookup `identity/` could not answer."""
     rows = known()
     url_key = canonical(url)
     jr = postings.source_id(url)
@@ -238,12 +241,53 @@ def find(url: str, title: str = "", company: str = "", text: str = "") -> Option
     return None
 
 
+# ---------------------------------------------------------------- the index
+#
+# `identity/` (ported from the original repo, df88b7f / 10048cc) answers the
+# same question over an index with a wider ladder: the canonical URL with its
+# `/apply` tails stripped, the board's own id across nineteen systems,
+# Jobright's posting id, then company-and-title and a posting simhash behind
+# measured thresholds. A lookup that raises falls back to the scan, because a
+# false "nothing matched" is the answer that costs a second application.
+
+# The index may not import the modules that write the queue and the archive,
+# so their locations arrive through a seam, as callables because both are
+# monkeypatched after import.
+identity_sources.PATH_HOOKS["queue"] = lambda: queue.QUEUE_PATH
+identity_sources.PATH_HOOKS["applications"] = lambda: store.APPLICATIONS
+
+
+def find(url: str, title: str = "", company: str = "", text: str = "") -> Optional[Match]:
+    """The best match for this page, or None."""
+    if not company:
+        company = postings.source_meta(url)[1] or company_from_title(title)
+    if not title:
+        title = postings.source_meta(url)[0]
+    try:
+        verdict = identity.lookup(url, title=title, company=company, text=text)
+    except Exception:                       # noqa: BLE001 - the scan is the fallback
+        return _find_by_scan(url, title=title, company=company, text=text)
+    if not verdict.matches:
+        return None
+    best = verdict.matches[0]
+    level = "high" if best.confidence == identity.CERTAIN else "confident"
+    return Match(level, best.display_id, best.status, best.decided_at, best.title, best.company, best.rule)
+
+
+def _employer_jobright_id(url: str) -> str:
+    """Jobright's posting id, but not from Jobright's own page: Jobright's page
+    and the employer page its Apply opens are one posting and two rows, and the
+    employer row is the one the fill works on."""
+    return "" if is_source_page(url) else identity.keys.jobright_id(url)
+
+
 def same_job(a: Job, b: Job) -> bool:
-    """Provably one posting: what `queue.add` refuses to duplicate."""
-    if canonical(a.url) == canonical(b.url):
+    """Provably one posting: what `queue.add` refuses to duplicate. Only a
+    proof counts here, never company-and-title resemblance."""
+    if identity.keys.canonical(a.url) == identity.keys.canonical(b.url):
         return True
-    ja, jb = postings.source_id(a.url), postings.source_id(b.url)
+    ja, jb = _employer_jobright_id(a.url), _employer_jobright_id(b.url)
     if ja and ja == jb:
         return True
-    aa, ab = ats_id(a.url), ats_id(b.url)
+    aa, ab = identity.keys.ats_identity(a.url), identity.keys.ats_identity(b.url)
     return bool(aa) and aa == ab

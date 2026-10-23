@@ -248,3 +248,14 @@ Intent: from the original repo (c38a65c), ported. A job that failed on
 stops whatever runs for it, then refills when documents exist or tailors again
 when they do not; a submitted job is refused and lifting a rejection is asked
 first. `runner.stop_pipeline` is new here.
+
+## 2026-10-22 — One answer to "have I already applied to this?"
+
+Intent: from the original repo (df88b7f, 0dca9af, 10048cc), ported. Jobs now
+arrive from Jobright, Lenny's, a16z, YC and company boards under different
+links. `identity/` (taken as is) indexes the queue and applications read-only
+in `data/identity.sqlite3` and matches by a ladder: canonical URL without
+tracking or `/apply` tails, the board's own id, Jobright's id, then company and
+title or the description's simhash. `seen.find` and `seen.same_job` ask it,
+with the old scan as the fallback. `tailor/quality.py` is the original's
+(adds `too_thin`). The current queue has no duplicates.

@@ -72,7 +72,8 @@ def test_confident_match_by_title_at_the_same_company():
                   title="[Remote] Software Engineer, (Internal Audit) [All Levels]"))
     match = seen.find("https://fieldguide.io/careers/swe-audit",
                       title="Software Engineer, Internal Audit @ Fieldguide | Jobright.ai")
-    assert match.level == "confident" and "same role" in match.reason
+    # The phrase is the index's; the judgement is the same one.
+    assert match.level == "confident" and "same company and title" in match.reason
     assert seen.find("https://fieldguide.io/careers/pm", title="Product Manager - Fieldguide Careers") is None
     assert seen.find("https://acme.io/careers/swe", title="Software Engineer, Internal Audit - Acme") is None
 
