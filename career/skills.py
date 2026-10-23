@@ -164,6 +164,8 @@ def build(save: bool = True) -> dict:
     family_roles: Counter = Counter()
     family_skill: dict[str, Counter] = defaultdict(Counter)
     role_sets: list[tuple[str, set]] = []
+    examples: dict[str, list] = defaultdict(list)
+    EXAMPLES = 40
     unknown: Counter = Counter()
     for role in roles:
         family_roles[role["family"]] += 1
@@ -175,6 +177,9 @@ def build(save: bool = True) -> dict:
                 unknown.update(w for w in re.findall(r"[A-Za-z][A-Za-z0-9+#.\-]{1,}", item["text"])
                                if w.lower() not in STOP and (w[0].isupper() or any(c.isdigit() for c in w)))
             for skill in found:
+                if len(examples[skill]) < EXAMPLES:
+                    examples[skill].append({"line": item["text"][:300], "level": item["level"], "kind": item["kind"],
+                                            "title": role["title"], "company": role["company"], "family": role["family"]})
                 rank = LEVEL_RANK.get(item["level"], -1)
                 best[skill] = max(best.get(skill, -1), rank)
                 if item["kind"] == "must":
@@ -188,6 +193,12 @@ def build(save: bool = True) -> dict:
             family_skill[role["family"]][skill] += 1
         role_sets.append((role["family"], set(best)))
 
+    companions: dict[str, Counter] = defaultdict(Counter)
+    for _, present in role_sets:
+        for a in present:
+            for b in present:
+                if a != b:
+                    companions[a][b] += 1
     skills = []
     for name, c in per_skill.items():
         judged = c["have"] + c["partly"] + c["missing"]
@@ -195,7 +206,9 @@ def build(save: bool = True) -> dict:
                        "have": c["have"], "partly": c["partly"], "missing": c["missing"],
                        "gap_rate": round((c["missing"] + 0.5 * c["partly"]) / judged, 3) if judged else None,
                        "share": round(c["roles"] / max(1, len(roles)), 3),
-                       "families": {k.split(":", 1)[1]: v for k, v in c.items() if k.startswith("family:")}})
+                       "families": {k.split(":", 1)[1]: v for k, v in c.items() if k.startswith("family:")},
+                       "with": [{"skill": k, "roles": v} for k, v in companions[name].most_common(8)],
+                       "examples": examples[name]})
     skills.sort(key=lambda s: -s["roles"])
 
     groups = defaultdict(lambda: Counter())

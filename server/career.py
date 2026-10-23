@@ -106,3 +106,11 @@ def skills_view(rebuild: bool = True) -> dict:
     judged roles on every read; it takes well under a second."""
     from career import skills
     return skills.build() if rebuild else (skills.load() or skills.build())
+
+
+@router.get("/tracker")
+def tracker_view() -> dict:
+    """Every job in Autopilot with its dates, stage, outcome and outreach."""
+    from career import tracker
+    rows = tracker.rows()
+    return {"applied": [r for r in rows if r["applied"]], "in_autopilot": [r for r in rows if not r["applied"]]}

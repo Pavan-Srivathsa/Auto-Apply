@@ -67,12 +67,22 @@ def get_status() -> dict:
     watches = store.watches()
     by_id = {w.id: w for w in watches}
     hits = sorted(store.hits(), key=lambda h: h.found_at, reverse=True)
+    # A role already in Autopilot is marked, so the Jobs list can leave it to
+    # the Applied tab (2026-10-23).
+    from career import tracker
+    by_url, by_name = tracker.in_autopilot()
+    rows = [watch_row(w) for w in watches]
+    for row in rows:
+        for r in row.get("listed", []):
+            mark = by_url.get(tracker._canonical(r["url"])) or by_name.get(tracker._key(r.get("company") or row["company"], r["title"]))
+            if mark:
+                r["in_autopilot"] = mark
     return {
         "running": run.running(),
         "broken": [w.company for w in watches if w.broken],
         "checks_per_day": int(settings.load().get("scout_checks_per_day", run.DEFAULT_CHECKS_PER_DAY)),
         "mail": mail.status(),
-        "watches": [watch_row(w) for w in watches],
+        "watches": rows,
         "hits": [hit_row(h, by_id) for h in hits],
     }
 

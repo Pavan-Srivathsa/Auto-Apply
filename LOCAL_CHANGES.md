@@ -429,3 +429,16 @@ requirement lines (Scout fits and applications, already marked meets / partly
 counts them once per role, ranks the ones the person lacks, and finds pairs
 that come together per role family by lift. Rebuilt on read; a dated snapshot
 in `data/skills/history.json` keeps the trend. Insights → Skills in demand.
+
+## 2026-10-23 — Skills is its own tab; Scout's Applied tracker
+
+Intent: "make this a separate tab... more information about what job skills
+are being applied in the job descriptions", and "anything I added to the
+autopilot stays in Jobs... put it into a separate tab... like a tracker".
+Skills is a top-level tab: every skill by demand on the left, and for each the
+roles and companies asking, how the person's resume met it, the skills that
+come with it, and the employers' own requirement lines. Scout's Jobs list
+leaves out roles already in Autopilot; its Applied tab (career/tracker.py)
+lists every job put into Autopilot with location, posted, found and applied
+dates, where it stands (the outcome ledger, rejections from mail, replies)
+and the outreach the reply watcher keeps current.

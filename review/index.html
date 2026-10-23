@@ -161,6 +161,11 @@
   .fitline .score { display: inline-block; min-width: 5.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .src-chip { display: inline-block; border: 1px solid var(--line); padding: 0 .35rem; margin-left: .35rem; font-size: 11px; color: var(--muted); }
   .hit .company { color: var(--muted); margin-left: .35rem; font-size: 13px; }
+  table.tracker tr[data-job] { cursor: pointer; } table.tracker tr[data-job]:hover td { background: var(--line); }
+  table.tracker td { vertical-align: top; font-size: 13px; }
+  table.tracker td:first-child { width: 34%; }
+  table.tracker td:nth-child(3), table.tracker td:nth-child(4) { white-space: nowrap; width: 8.5rem; }
+  table.tracker td:nth-child(2) { width: 14%; } table.tracker tr.th td { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
   table.srcs tr { cursor: pointer; } table.srcs tr:hover td { background: var(--line); }
   /* The ML/DS bullet review: each rewritten bullet against its own source. */
   .breview .row { border-top: 1px solid var(--line); padding: .55rem 0; font-size: 13px; display: grid; grid-template-columns: 5.5rem 1fr; gap: .2rem .8rem; }
@@ -550,6 +555,7 @@
     <button id="tabResumes" aria-current="false">Resumes</button>
     <button id="tabScout" aria-current="false">Scout<span class="broken" id="scoutBroken" hidden style="margin-left:.5rem">Broken</span></button>
     <button id="tabPrompts" aria-current="false">Prompts</button>
+    <button id="tabSkills" aria-current="false">Skills</button>
     <button id="tabInsights" aria-current="false">Insights</button>
   </div>
   <span class="count" id="count"></span>
@@ -685,6 +691,7 @@ function switchView(name) {
   $("tabScout").setAttribute("aria-current", name === "scout");
   $("tabPrompts").setAttribute("aria-current", name === "prompts");
   $("tabInsights").setAttribute("aria-current", name === "insights");
+  $("tabSkills").setAttribute("aria-current", name === "skills");
   if (name !== "profile") { Profile.leave(); $("detail").classList.remove("chatpane"); }
   if (name === "jobs") loadList();
   else if (name === "profile") Profile.open();
@@ -692,6 +699,7 @@ function switchView(name) {
   else if (name === "resumes") Resumes.open();
   else if (name === "prompts") Prompts.open();
   else if (name === "insights") Insights.open();
+  else if (name === "skills") Skills.open();
   else Projects.open();
 }
 $("tabJobs").onclick = () => switchView("jobs");
@@ -701,6 +709,7 @@ $("tabResumes").onclick = () => switchView("resumes");
 $("tabScout").onclick = () => switchView("scout");
 $("tabPrompts").onclick = () => switchView("prompts");
 $("tabInsights").onclick = () => switchView("insights");
+$("tabSkills").onclick = () => switchView("skills");
 
 async function loadList() {
   if (view !== "jobs") return;
@@ -1037,26 +1046,61 @@ Insights.renderers.system = async () => {
       <span>drafts <strong>${o.drafts}</strong></span><span>sent by you <strong>${o.sent}</strong></span><span>failed <strong>${o.failed}</strong></span></div></div>`;
 };
 
-// Skills employers ask for (career/skills.py): demand, your gaps, and the
-// skills that come together for each kind of role. No model; rebuilt on read.
-Insights.extra.push(["skills", "Skills in demand", "what roles ask for, what you lack"]);
-Insights.renderers.skills = async () => {
-  const k = await api("/career/skills");
+
+// Skills (career/skills.py): what job descriptions ask for, counted once per
+// role, with the employers' own lines, the skills that come with each one,
+// and how the person's resume met them. The list on the left is every skill
+// by demand; the overview has the gaps and the skill sets per kind of role.
+const Skills = (() => {
+  let data = null, viewing = "overview", group = "all";
   const fam = (f) => f.replace("_", " ");
+  const LEVEL = { meets: "you have it", partly: "partly", missing: "missing" };
+  async function open() { data = await api("/career/skills"); render(); }
+  function renderNav() {
+    const groups = ["all", ...new Set(data.skills.map((s) => s.group))];
+    $("count").textContent = `${data.skills.length} skills · ${data.roles} roles read`;
+    const shown = data.skills.filter((s) => group === "all" || s.group === group);
+    $("list").innerHTML = `<button class="row" data-skill="overview" data-tone="agent" aria-current="${viewing === "overview"}">
+        <span class="role">Overview</span><span class="cov">gaps and skill sets by role</span></button>
+      <div class="group"><select id="skillGroup" style="width:100%">${groups.map((g) => `<option ${g === group ? "selected" : ""}>${escape(g)}</option>`).join("")}</select></div>`
+      + shown.map((s) => `<button class="row" data-skill="${escape(s.skill)}" data-tone="${s.missing > s.have ? "stop" : s.have >= s.roles / 2 ? "done" : "you"}" aria-current="${viewing === s.skill}">
+        <span class="role">${escape(s.skill)}</span><span class="cov">${s.roles} roles · ${Math.round(s.share * 100)}% · missing ${s.missing}</span></button>`).join("");
+    for (const b of $("list").querySelectorAll("[data-skill]")) b.onclick = () => { viewing = b.dataset.skill; render(); };
+    $("skillGroup").onchange = (e) => { group = e.target.value; renderNav(); };
+  }
   const bar = (s) => `<span class="hint">have ${s.have} · partly ${s.partly} · <span style="color:var(--red)">missing ${s.missing}</span></span>`;
-  $("detail").innerHTML = `<div class="head"><h2>Skills in demand</h2><span class="state agent">${k.roles} roles read</span></div>
-    <p class="hint">From every role Autopilot has judged (${k.sources.scout || 0} from Scout, ${k.sources.application || 0} applications), each requirement already marked met, partly or missing against your resume and stories. Counted once per role. Soft skills and degrees are counted but kept out of the gaps.</p>
-    <h3>Most asked for that you lack</h3><div class="card"><table class="kv">${k.missing_most.map((s) =>
-      `<tr><td><b>${escape(s.skill)}</b> <span class="hint">${escape(s.group)}</span></td><td>${s.roles} roles</td><td>${bar(s)}</td></tr>`).join("")}</table></div>
-    <h3>Skill sets by kind of role</h3>${Object.entries(k.by_family).sort((a, b) => b[1].roles - a[1].roles).map(([f, b]) => `
-      <div class="card" style="padding:.6rem 1rem;margin-bottom:.6rem"><p><b>${escape(fam(f))}</b> <span class="hint">${b.roles} roles</span></p>
-        <p>${b.top.map((t) => `<span class="src-chip" style="margin:0 .3rem .3rem 0">${escape(t.skill)} ${Math.round(t.share * 100)}%</span>`).join("")}</p>
-        ${b.together.length ? `<p class="hint">Asked together: ${b.together.slice(0, 6).map((x) => `${x.skills.map(escape).join(" + ")} (${x.roles})`).join(" · ")}</p>` : ""}</div>`).join("")}
-    <h3>Every skill, by demand</h3><div class="card"><table class="kv">${k.skills.map((s) =>
-      `<tr><td><b>${escape(s.skill)}</b> <span class="hint">${escape(s.group)}</span></td><td>${s.roles} roles · required in ${s.required}</td><td>${bar(s)}</td></tr>`).join("")}</table></div>
-    <h3>By group</h3><div class="card"><table class="kv">${k.groups.map((g) => `<tr><td>${escape(g.group)}</td><td>${g.roles} asks across ${g.skills} skills</td><td><span class="hint">missing ${g.missing || 0} · partly ${g.partly || 0}</span></td></tr>`).join("")}</table></div>
-    ${k.unrecognized.length ? `<details><summary>Frequent words no skill matched (${k.unrecognized.length})</summary><p class="hint">${k.unrecognized.map((u) => `${escape(u.term)} ${u.count}`).join(" · ")}</p></details>` : ""}`;
-};
+  function overview() {
+    return `<div class="head"><h2>Skills in demand</h2><span class="state agent">${data.roles} roles read</span></div>
+      <p class="hint">Every role Autopilot has judged (${data.sources.scout || 0} from Scout, ${data.sources.application || 0} applications); each requirement line is already marked met, partly or missing against your resume and stories. Counted once per role. Pick a skill on the left for the employers' own lines.</p>
+      <h3>Most asked for that you lack</h3><div class="card"><table class="kv">${data.missing_most.map((s) =>
+        `<tr data-open-skill="${escape(s.skill)}" style="cursor:pointer"><td><b>${escape(s.skill)}</b> <span class="hint">${escape(s.group)}</span></td><td>${s.roles} roles</td><td>${bar(s)}</td></tr>`).join("")}</table></div>
+      <h3>Skill sets by kind of role</h3>${Object.entries(data.by_family).sort((a, b) => b[1].roles - a[1].roles).map(([f, b]) => `
+        <div class="card" style="padding:.6rem 1rem;margin-bottom:.6rem"><p><b>${escape(fam(f))}</b> <span class="hint">${b.roles} roles</span></p>
+          <p>${b.top.map((t) => `<span class="src-chip" style="margin:0 .3rem .3rem 0">${escape(t.skill)} ${Math.round(t.share * 100)}%</span>`).join("")}</p>
+          ${b.together.length ? `<p class="hint">Asked together: ${b.together.slice(0, 6).map((x) => `${x.skills.map(escape).join(" + ")} (${x.roles})`).join(" · ")}</p>` : ""}</div>`).join("")}
+      <h3>By group</h3><div class="card"><table class="kv">${data.groups.map((g) => `<tr><td>${escape(g.group)}</td><td>${g.roles} asks across ${g.skills} skills</td><td><span class="hint">missing ${g.missing || 0} · partly ${g.partly || 0}</span></td></tr>`).join("")}</table></div>
+      ${data.unrecognized.length ? `<details><summary>Frequent words no skill matched (${data.unrecognized.length})</summary><p class="hint">${data.unrecognized.map((u) => `${escape(u.term)} ${u.count}`).join(" · ")}</p></details>` : ""}`;
+  }
+  function detail(s) {
+    const fams = Object.entries(s.families).sort((a, b) => b[1] - a[1]);
+    return `<div class="head"><h2>${escape(s.skill)}</h2><span class="state agent">${s.roles} roles</span><span class="hint">${escape(s.group)}</span></div>
+      <div class="card fit"><div class="sum"><span>Asked in <strong>${s.roles}</strong> roles (${Math.round(s.share * 100)}%)</span><span>required in <strong>${s.required}</strong></span>
+        <span>you have it <strong style="color:var(--green)">${s.have}</strong></span><span>partly <strong>${s.partly}</strong></span><span>missing <strong style="color:var(--red)">${s.missing}</strong></span></div></div>
+      <h3>Which roles ask for it</h3><p>${fams.map(([f, n]) => `<span class="src-chip" style="margin:0 .3rem .3rem 0">${escape(fam(f))} ${n}</span>`).join("")}</p>
+      <h3>Usually asked together with</h3><p>${s.with.map((x) => `<button class="band" data-open-skill="${escape(x.skill)}">${escape(x.skill)} <b>${x.roles}</b></button>`).join(" ")}</p>
+      <h3>What the job descriptions say · ${s.examples.length}</h3><div class="card">${s.examples.map((e) => `<div class="hit">
+        <div class="t">“${escape(e.line)}”</div>
+        <div class="m">${escape(e.title)} · ${escape(e.company)} · ${e.kind === "must" ? "required" : "nice to have"} ·
+          <span class="${e.level === "missing" ? "issue" : ""}">${escape(LEVEL[e.level] || e.level || "not judged")}</span></div></div>`).join("")}</div>`;
+  }
+  function render() {
+    renderNav();
+    const s = data.skills.find((x) => x.skill === viewing);
+    $("detail").innerHTML = s ? detail(s) : overview();
+    for (const el of $("detail").querySelectorAll("[data-open-skill]")) el.onclick = () => { viewing = el.dataset.openSkill; render(); };
+  }
+  return { open };
+})();
 
 function wireBullets(id) {
   for (const button of document.querySelectorAll("[data-bullet]")) {
@@ -2236,6 +2280,7 @@ function pollNow() {
   else if (view === "resumes") Resumes.poll();
   else if (view === "prompts") Prompts.poll();
   else if (view === "insights") Insights.poll();
+  else if (view === "skills") { /* read on open; it is rebuilt from the roles */ }
   else Projects.poll();
   loadScoutBroken();
   Setup.poll();
@@ -2315,6 +2360,7 @@ const Scout = (() => {
     const merged = new Map();
     for (const w of (state.watches || []).filter(keep)) {
       for (const r of w.listed || []) {
+        if (r.in_autopilot) continue;            // it lives under Applied now
         const company = r.company || w.company;
         const key = `${company}|${r.title}`.toLowerCase().replace(/[^a-z0-9|]+/g, " ").trim();
         const row = merged.get(key) || { ...r, company, sources: [], adds: [], queued: false };
@@ -2337,13 +2383,15 @@ const Scout = (() => {
     const broken = ws.filter((w) => w.broken).length;
     $("count").textContent = ws.length ? `${best} best fits · ${jobs.length} open roles` : "";
     const row = (key, label, cov, tone) => `<button class="row" data-view="${key}" data-tone="${tone}"
-        aria-current="${viewing === key || (key === "sources" && viewing && !["jobs", "referrals"].includes(viewing) && !String(viewing).startsWith("tab:"))}">
+        aria-current="${viewing === key || (key === "sources" && viewing && !["jobs", "referrals", "applied"].includes(viewing) && !String(viewing).startsWith("tab:"))}">
         <span class="role">${label}</span><span class="cov">${cov}</span></button>`;
     const tabs = ws.filter((w) => w.own_tab).map((w) => {
       const own = allJobs(w.id);
       return row(`tab:${w.id}`, escape(w.company), `${own.filter((j) => j.band === "best").length} best fits of ${own.length}`, w.broken ? "stop" : "agent");
     }).join("");
+    const added = (state.watches || []).reduce((n, w) => n + (w.listed || []).filter((r) => r.in_autopilot).length, 0);
     $("list").innerHTML = row("jobs", "Jobs", `${best} best fits of ${jobs.length}`, "agent") + tabs
+      + row("applied", "Applied", tracked ? `${tracked.applied.length} applied · ${tracked.in_autopilot.length} in autopilot` : `${added} from Scout in autopilot`, "you")
       + row("referrals", "Referrals", `${toAsk} to ask`, "you")
       + row("sources", "Sources", `${ws.length} websites${broken ? ` · <span class="broken">${broken} broken</span>` : ""}`, broken ? "stop" : "done");
     for (const b of $("list").querySelectorAll("button[data-view]")) b.onclick = () => { viewing = b.dataset.view; render(); };
@@ -2353,10 +2401,11 @@ const Scout = (() => {
     renderNav();
     if (!state) return;
     const tab = viewing.startsWith && viewing.startsWith("tab:") && state.watches.find((x) => `tab:${x.id}` === viewing && x.own_tab);
-    const w = !tab && !["jobs", "referrals", "sources"].includes(viewing) && state.watches.find((x) => x.id === viewing);
-    if (!tab && !w && !["jobs", "referrals", "sources"].includes(viewing)) viewing = "jobs";
+    const w = !tab && !["jobs", "referrals", "sources", "applied"].includes(viewing) && state.watches.find((x) => x.id === viewing);
+    if (!tab && !w && !["jobs", "referrals", "sources", "applied"].includes(viewing)) viewing = "jobs";
     $("detail").dataset.hits = state.hits.length;
     if (tab) { $("detail").innerHTML = renderJobs(tab); wire(null); return; }
+    if (viewing === "applied") { renderTracker(); return; }
     if (viewing === "jobs") $("detail").innerHTML = renderJobs();
     else if (viewing === "referrals") $("detail").innerHTML = renderHits(null, true);
     else if (viewing === "sources") $("detail").innerHTML = renderSources();
@@ -2395,6 +2444,37 @@ const Scout = (() => {
   }
 
   // Every website Scout reads, one line each; a click opens its settings.
+  // The tracker (career/tracker.py): every job put into Autopilot, when the
+  // role was posted, found and applied to, where it stands, and the outreach
+  // the reply watcher keeps current.
+  let tracked = null;
+  const OUT = { in_flight: "waiting", quiet: "no reply yet (30+ days)", in_progress: "in process", rejected: "rejected",
+                offer_accepted: "offer accepted", offer_declined: "offer declined", withdrawn: "withdrawn",
+                no_response: "no response", not_applied: "not applied", unknown: "unknown" };
+  async function renderTracker() {
+    try { tracked = await api("/career/tracker"); } catch (err) { $("detail").innerHTML = `<p class="issue">${escape(err.message)}</p>`; return; }
+    renderNav();
+    const mail = (o) => !o || !(o.sent || o.replies) ? `<span class="hint">–</span>`
+      : `${o.sent} sent${o.followups_sent ? ` (${o.followups_sent} follow-up)` : ""}${o.replies ? ` · <b>${o.replies} repl${o.replies > 1 ? "ies" : "y"}</b> ${escape(o.reply_verdict || "")}` : ""}${o.followup_due ? ` · <span style="color:var(--warn,#b8860b)">follow-up due</span>` : ""}`;
+    const row = (r, applied) => `<tr data-job="${escape(r.id)}">
+        <td><b>${escape(r.title)}</b><br><span class="hint">${escape(r.company)}</span></td>
+        <td>${escape(r.location || "–")}</td>
+        <td>${escape(r.posted || "–")}<br><span class="hint">found ${escape(r.found)}</span></td>
+        ${applied ? `<td>${escape(r.applied)}<br><span class="hint">${escape(r.applied_how.startsWith("the app saw") ? "confirmation seen" : "by you")}</span></td>` : `<td>${escape(r.status.replace("_", " "))}</td>`}
+        <td>${escape(OUT[r.outcome] || r.outcome)}${r.stage !== "applied" && r.stage !== "prepared" && r.stage !== "discovered" ? ` <span class="hint">· reached ${escape(r.stage)}</span>` : ""}
+          ${r.last_event && applied ? `<br><span class="hint">last: ${escape(r.last_event.event)} ${escape(r.last_event.at)}</span>` : ""}</td>
+        <td>${mail(r.outreach)}</td></tr>`;
+    const head = (applied) => `<tr class="th"><td>Job</td><td>Location</td><td>Posted</td><td>${applied ? "Applied" : "Now"}</td><td>Where it stands</td><td>Outreach</td></tr>`;
+    const live = tracked.in_autopilot.filter((r) => !["skipped", "failed"].includes(r.status));
+    const closed = tracked.in_autopilot.filter((r) => ["skipped", "failed"].includes(r.status));
+    $("detail").innerHTML = `<div class="head"><h2>Applied</h2><span class="state you">${tracked.applied.length} applied</span></div>
+      <p class="hint">Every job you put into Autopilot. Outcomes come from what you record on a job, rejections confirmed from mail and replies the watcher reads; outreach is kept current by the reply watcher, which also drafts a follow-up two days after a quiet email. Click a row to open the job.</p>
+      <div class="card"><table class="kv tracker">${head(true)}${tracked.applied.map((r) => row(r, true)).join("")}</table></div>
+      ${live.length ? `<h3>In autopilot, not applied yet · ${live.length}</h3><div class="card"><table class="kv tracker">${head(false)}${live.map((r) => row(r, false)).join("")}</table></div>` : ""}
+      ${closed.length ? `<details><summary>Rejected or failed · ${closed.length}</summary><div class="card"><table class="kv tracker">${head(false)}${closed.map((r) => row(r, false)).join("")}</table></div></details>` : ""}`;
+    for (const tr of $("detail").querySelectorAll("tr[data-job]")) tr.onclick = () => { location.hash = tr.dataset.job; switchView("jobs"); };
+  }
+
   function renderSources() {
     const ws = [...(state.watches || [])].sort((a, b) => (b.broken - a.broken) || (b.last_matching - a.last_matching));
     const kind = (w) => w.notify ? "referral" : w.args && w.args.hold ? "list only" : "autopilot";
