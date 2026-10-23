@@ -60,3 +60,12 @@ def test_a_linkedin_note_is_checked_and_can_never_be_sent(monkeypatch):
     monkeypatch.setattr(routes, "_job_and_dir", lambda job_id: (None, None))
     r = TestClient(app).post(f"/review/j1/outreach/draft/{draft.id}/send", json={"confirmed": True, "verified_by_user": True})
     assert r.status_code == 409 and "never sends" in r.json()["detail"]
+
+
+def test_a_field_cto_is_sales_and_a_regional_leader_comes_after_the_us_line():
+    cs = [Contact.create("leadership", "F", title="Field CTO, APAC", company="X"),
+          Contact.create("leadership", "R", title="CTO, Acme India", company="X"),
+          Contact.create("leadership", "C", title="Chief Technology Officer", company="X")]
+    ranked = leaders.rank(cs, "Machine Learning Engineer")
+    assert ranked[0].name == "C" and "another region" in next(c for c in ranked if c.name == "R").reason
+    assert "outside the engineering line" in next(c for c in ranked if c.name == "F").reason

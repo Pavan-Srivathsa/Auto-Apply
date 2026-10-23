@@ -45,10 +45,17 @@ TEAMS = {
     "research": ["research", "ml", "ai"],
 }
 PER_ROLE = 4
+# A customer-facing "Field CTO" is sales, not the engineering line; a leader of
+# another region is unlikely to hire for a US role (Glean, 2026-10-22: "Field
+# CTO, APAC" and "CTO, Glean India" ranked as the CTO).
+NOT_ENGINEERING = re.compile(r"\bfield cto\b|\bsolutions?\b.*\b(director|vp|head)\b|\bsales\b|\bgtm\b", re.I)
+REGIONAL = re.compile(r"\b(apac|emea|latam|india|japan|europe|uk|anz|asia|germany|france|singapore)\b", re.I)
 
 
 def tier(title: str) -> tuple[int, str]:
     low = (title or "").lower()
+    if NOT_ENGINEERING.search(low) and not re.search(r"recruit|talent", low):
+        return 9, "outside the engineering line"
     for rank, label, pattern in TIERS:
         if re.search(pattern, low):
             return rank, label
@@ -68,7 +75,9 @@ def rank(contacts: list[Contact], job_title: str, job_id: str = "") -> list[Cont
     for c in contacts:
         level, label = tier(c.title)
         aligned = alignment(c.title, family)
-        confidence = round(max(0.1, 1.0 - 0.08 * (level - 1)) * (1.0 if aligned or level == 8 else 0.7), 2)
+        regional = bool(REGIONAL.search(c.title or ""))
+        confidence = round(max(0.1, 1.0 - 0.08 * (level - 1)) * (1.0 if aligned or level == 8 else 0.7)
+                           * (0.6 if regional else 1.0), 2)
         c.team_alignment = ", ".join(aligned)
         c.related_job = job_id
         c.confidence = confidence
@@ -76,10 +85,11 @@ def rank(contacts: list[Contact], job_title: str, job_id: str = "") -> list[Cont
         article = "an" if kind[:1] in "aeiou" else "a"
         c.reason = (f"{label}" + (f", on the {', '.join(aligned)} side, the team {article} {kind} "
                                   f"role reports into" if aligned else
-                                  "" if level == 8 else f"; no sign in the title of the {kind} team"))
+                                  "" if level == 8 else f"; no sign in the title of the {kind} team")
+                    + ("; leads another region" if regional else ""))
         c.evidence = list(dict.fromkeys((c.evidence or []) + [f"{c.source} people search: '{c.title}' at {c.company}"]))
         c.last_verified = c.last_verified or at
-        scored.append((level - (0.5 if aligned else 0), -confidence, c))
+        scored.append((level - (0.5 if aligned else 0) + (2 if regional else 0), -confidence, c))
     return [c for _, _, c in sorted(scored, key=lambda row: (row[0], row[1]))]
 
 
