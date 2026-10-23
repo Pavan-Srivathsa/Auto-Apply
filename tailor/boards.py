@@ -84,6 +84,19 @@ def identify(url: str) -> Optional[Board]:
             org, job = found.group(1), found.group(2)
         return Board("greenhouse", org, job)
 
+    if host == "apply.workable.com":
+        found = re.match(r"^/([^/]+)/j/([A-Za-z0-9]+)", path)
+        return Board("workable", found.group(1), found.group(2)) if found else None
+
+    # A careers page or a board wrapper (careerpuck, a company's own site)
+    # that carries a Greenhouse job id: the board slug is careerpuck's
+    # `/job-board/<slug>` or the site's own name (2026-10-23: Lyft, Fivetran).
+    gh_jid = (query.get("gh_jid") or [""])[0]
+    if gh_jid.isdigit():
+        found = re.match(r"^/job-board/([^/]+)", path)
+        slug = found.group(1) if found else host.removeprefix("www.").split(".")[0]
+        return Board("greenhouse", slug, gh_jid)
+
     if "lever.co" in host:
         found = re.match(rf"^/([^/]+)/({_UUID})", path)
         return Board("lever", found.group(1), found.group(2)) if found else None
@@ -166,6 +179,16 @@ def _workday(board: Board, client: httpx.Client) -> Optional[Posting]:
                    location=info.get("location") or "")
 
 
+def _workable(board: Board, client: httpx.Client) -> Optional[Posting]:
+    data = client.get(f"https://apply.workable.com/api/v2/accounts/{board.org}/jobs/{board.job}").raise_for_status().json()
+    text = "\n\n".join(_text(data.get(k)) for k in ("description", "requirements", "benefits") if data.get(k))
+    if not text:
+        return None
+    place = data.get("location") or {}
+    return Posting(url="", text=text, title=data.get("title") or "",
+                   location=", ".join(x for x in (place.get("city"), place.get("country")) if x))
+
+
 def _gem(board: Board, client: httpx.Client) -> Optional[Posting]:
     data = client.get(GEM.format(org=board.org, job=board.job)).raise_for_status().json()
     text = data.get("content_plain") or _text(data.get("content"))
@@ -181,6 +204,7 @@ READERS: dict[str, Callable[[Board, httpx.Client], Optional[Posting]]] = {
     "ashby": _ashby,
     "workday": _workday,
     "gem": _gem,
+    "workable": _workable,
 }
 
 

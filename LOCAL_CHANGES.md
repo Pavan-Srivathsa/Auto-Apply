@@ -396,3 +396,10 @@ and scrolled to the employer's submit button, which is outlined
 tab would be an empty form, so it is always the filled tab. The job page's
 "Open the filled form" does the same on demand (`POST /review/{id}/show-form`);
 a closed tab says to Fill again. `AUTOPILOT_SHOW_FILLED=0` turns the jump off.
+
+## 2026-10-23 — Postings behind careerpuck, company sites and Workable are read from their APIs
+
+Intent: the roles stuck at "fit unknown". A page carrying a Greenhouse job id
+(`gh_jid`: careerpuck's wrapper, Fivetran's own careers page) is read from
+Greenhouse's board API; Workable postings from Workable's. Dover stays
+unreadable (JavaScript only, one role).

@@ -152,3 +152,13 @@ def test_a_gem_posting_is_read_from_its_api_not_its_javascript_page():
         "title": "Software Engineer, Agents", "content_plain": "Build agents. " * 40, "location": {"name": "United States"}})))
     found = boards.posting(url, client)
     assert found.title == "Software Engineer, Agents" and found.authoritative and "agents" in found.text.lower()
+
+
+def test_a_greenhouse_job_id_on_a_wrapper_page_and_a_workable_posting_are_read_from_their_apis():
+    from tailor import boards
+    puck = boards.identify("https://app.careerpuck.com/job-board/lyft/job/8896679002?gh_jid=8896679002")
+    assert (puck.system, puck.org, puck.job) == ("greenhouse", "lyft", "8896679002")
+    own = boards.identify("https://www.fivetran.com/careers/job?gh_jid=7811889003")
+    assert (own.system, own.org, own.job) == ("greenhouse", "fivetran", "7811889003")
+    wk = boards.identify("https://apply.workable.com/upsmith-1/j/7C745564D1/apply/")
+    assert (wk.system, wk.org, wk.job) == ("workable", "upsmith-1", "7C745564D1")
