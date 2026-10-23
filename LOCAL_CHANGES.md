@@ -259,3 +259,13 @@ tracking or `/apply` tails, the board's own id, Jobright's id, then company and
 title or the description's simhash. `seen.find` and `seen.same_job` ask it,
 with the old scan as the fallback. `tailor/quality.py` is the original's
 (adds `too_thin`). The current queue has no duplicates.
+
+## 2026-10-22 — Scope verbs and durations the record never states
+
+Intent: "Modeled" became "Led" in a Glean revision and a cover letter said "the
+last three years"; neither carries a figure or a name, so no check saw them.
+`tailor.unsupported_claims` finds scope verbs (led, owned, managed, architected,
+...) and durations ("three years") absent from the master and the stories. The
+tailor rejects an attempt with one; the critic flags the line (0.8) and names
+the word. The posting no longer proves a line about the candidate. Replayed over
+65 past resumes: 4 would have been refused, each for a verb its master never uses.

@@ -588,6 +588,27 @@ def _is_known(stem: str, known: set[str]) -> bool:
     return len(stem) >= 3 and any(stem in word for word in known)
 
 
+# Claims about the candidate that carry no figure and no name, so the checks
+# below cannot see them: "Modeled" became "Led" in a Glean revision, and a
+# cover letter said "the last three years" where the dates show something
+# else (2026-10-22). A scope verb or a duration is allowed only when the master
+# or a story says it too; the posting never licenses one.
+SCOPE = re.compile(r"\b(led|lead(?:s|ing)?|own(?:ed|s|ing)|manag(?:ed|es|ing)|head(?:ed|s|ing)|"
+                   r"direct(?:ed|s|ing)|spearhead(?:ed|s|ing)?|architect(?:ed|s|ing)|mentor(?:ed|s|ing)?|"
+                   r"supervis(?:ed|es|ing))\b", re.I)
+_COUNT = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|many|\d+)"
+DURATION = re.compile(rf"\b{_COUNT}\+?\s+(?:full\s+)?(?:years?|months?)\b", re.I)
+
+
+def unsupported_claims(text: str, on_file: str) -> list[str]:
+    """Scope verbs and durations in `text` that `on_file` never says."""
+    known = _words(on_file)
+    flat = " ".join(on_file.lower().split())
+    found = [m.group(0) for m in SCOPE.finditer(text) if _stem(m.group(0)) not in known]
+    found += [m.group(0) for m in DURATION.finditer(text) if " ".join(m.group(0).lower().split()) not in flat]
+    return sorted(set(found), key=str.lower)
+
+
 def _check_invented(original: str, tailored: str, profile: str = "", posting: str = "") -> None:
     """No figure and no named thing that is not already on file.
 
@@ -620,6 +641,12 @@ def _check_invented(original: str, tailored: str, profile: str = "", posting: st
         raise TailorError(
             "tailored resume names things that are on neither the master resume, "
             f"a story, nor the posting: {', '.join(strange)}"
+        )
+    claimed = unsupported_claims(from_model, on_file)
+    if claimed:
+        raise TailorError(
+            "tailored resume claims a scope or a duration that neither the master resume nor a "
+            f"story states: {', '.join(claimed)}. Keep the master's own verb and its dates"
         )
 
 

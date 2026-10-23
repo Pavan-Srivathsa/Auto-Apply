@@ -214,7 +214,10 @@ def judge_jev(kind: str, document: str, brief: Optional[briefs.Brief], subject: 
     invented = max((p for p, _ in flagged), default=0.0)
     score, raw, fixes = _scored(rubric, points, invented)
     if invented > INVENTED:
-        named = [f'Cut or rewrite this line; it claims something the candidate\'s record does not show: "{line}"'
+        on_file = "\n".join(v for k, v in (sources or {}).items() if k != "posting" and v)
+        named = [(f'Cut or rewrite this line; the record never says {", ".join(repr(c) for c in claimed)}, '
+                  f'so use the master\'s own wording: "{line}"') if (claimed := _claims(line, on_file)) else
+                 f'Cut or rewrite this line; it claims something the candidate\'s record does not show: "{line}"'
                  for p, line in flagged if p > INVENTED][:2]
         fixes = named + fixes[1:]
     return Critique(score=score, points=points, fixes=fixes, judge="jev", invented=invented, raw=raw)
@@ -239,12 +242,30 @@ def _line_scores(document: str, sources: dict) -> list[tuple[float, str]]:
                   "company may rest on `sources.posting`."}) for i in range(len(lines))}
     answers = jev.ask(state, questions)
     # Jev called master bullets "unsupported" at 0.78 (Glean). A line that carries
-    # figures or names, every one of them on file, is proven by the code, so Jev's
-    # doubt alone never pushes it over INVENTED. A line with nothing to check
-    # ("a bar I have worked against") stays Jev's call.
-    on_file = " ".join(sources.values())
-    return sorted(((min(float(answers[f"s{i}"]["noul"]), INVENTED) if _grounded(line, on_file)
-                    else float(answers[f"s{i}"]["noul"]), line) for i, line in enumerate(lines)), reverse=True)
+    # figures or names, every one of them on the master or a story, is proven by
+    # the code, so Jev's doubt alone never pushes it over INVENTED. The posting
+    # proves nothing about the candidate: a cover letter's opening named only
+    # the posting's own title and was waved through. A line with nothing to
+    # check stays Jev's call, and a scope verb or a duration the record never
+    # states ("Led", "three years") is flagged whatever Jev says.
+    on_file = "\n".join(v for k, v in sources.items() if k != "posting" and v)
+    scored = []
+    for i, line in enumerate(lines):
+        p = float(answers[f"s{i}"]["noul"])
+        if _claims(line, on_file):
+            p = max(p, CLAIMED)
+        elif _grounded(line, on_file):
+            p = min(p, INVENTED)
+        scored.append((p, line))
+    return sorted(scored, reverse=True)
+
+
+CLAIMED = 0.8         # the probability a line gets when the code finds a claim the record never states
+
+
+def _claims(line: str, on_file: str) -> list[str]:
+    from .tailor import unsupported_claims
+    return unsupported_claims(briefs._plain(line), briefs._plain(on_file))
 
 
 def _grounded(line: str, on_file: str) -> bool:
@@ -279,7 +300,11 @@ def judge(kind: str, document: str, brief: Optional[briefs.Brief], subject: str 
     first: an unanswered requirement with evidence is the most useful note."""
     critique = (judge_jev if jev.configured() else judge_text)(kind, document, brief, subject, sources)
     on_file = "\n".join(v for k, v in (sources or {}).items() if k != "posting" and v)
-    critique.fixes = _coverage_fixes(kind, brief, document, on_file) + critique.fixes
+    # A line the record does not support caps the score, so cutting it comes
+    # before anything else; then the unanswered requirements; then the rubric.
+    cut = [f for f in critique.fixes if f.startswith("Cut or rewrite this line")]
+    rest = [f for f in critique.fixes if f not in cut]
+    critique.fixes = cut + _coverage_fixes(kind, brief, document, on_file) + rest
     return critique
 
 

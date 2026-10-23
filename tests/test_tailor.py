@@ -546,3 +546,12 @@ def test_jobs_stay_in_date_order_and_the_reason_is_named():
         tailor._check_role_order(JOBS, swapped)
     tailor._check_role_order(JOBS, JOBS.replace("Built an", "Shipped an"))        # bullets may change
     tailor._check_role_order(ORIGINAL, ORIGINAL)                                   # no subheadings: not checked
+
+
+def test_a_scope_verb_or_a_duration_not_on_file_is_rejected():
+    from tailor.tailor import unsupported_claims
+    master = "Modeled demand forecasting. Led a team of four at Koantek. 2021 -- 2024"
+    assert unsupported_claims("Led machine learning forecasting", master) == []          # the master says Led
+    assert unsupported_claims("Owned the forecasting roadmap", master) == ["Owned"]
+    assert unsupported_claims("Architected a RAG service over three years", master) == ["Architected", "three years"]
+    assert unsupported_claims("Built a RAG service", master) == []

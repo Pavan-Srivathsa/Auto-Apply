@@ -186,3 +186,23 @@ def test_a_resume_revision_that_fails_tailoring_leaves_the_first_one(tmp_path, m
     base = type("Base", (), {"tex_path": tmp_path / "r.tex", "pdf_path": tmp_path / "r.pdf"})()
     assert pipeline.review_resume(tmp_path, object(), "master", first, BRIEF, "", base, None) is first
     assert "revision failed" in json.loads((tmp_path / "resume_review.json").read_text())["trace"][-1]["error"]
+
+
+def test_a_scope_verb_or_a_duration_the_record_never_states_is_flagged(monkeypatch):
+    monkeypatch.setenv(jev.API_KEY_ENV, "key")
+    monkeypatch.setattr(jev, "ask", jev_answers({p.name: 2 for p in critic.EMAIL}, invented=0.05))
+    master = r"\resumeItem{Modeled demand forecasting on 300K+ records at 9.1\% MAPE}"
+    c = critic.judge("email", "Led demand forecasting on 300K+ records at 9.1% MAPE.", BRIEF,
+                     sources={"resume": master, "posting": "We want someone who led teams for three years."})
+    assert c.score == critic.INVENTED_CAP and "'Led'" in c.fixes[0]
+    c = critic.judge("email", "I spent the last three years making LLM assistants useful in production.", BRIEF,
+                     sources={"resume": master, "posting": "three years"})
+    assert c.score == critic.INVENTED_CAP and "'three years'" in c.fixes[0]
+
+
+def test_the_postings_own_names_prove_nothing_about_the_candidate(monkeypatch):
+    monkeypatch.setenv(jev.API_KEY_ENV, "key")
+    monkeypatch.setattr(jev, "ask", jev_answers({p.name: 2 for p in critic.EMAIL}, invented=0.6))
+    c = critic.judge("email", "Glean's Assistant Quality role is the problem I have worked on in production.", BRIEF,
+                     sources={"resume": r"\resumeItem{Built a copilot}", "posting": "Glean Assistant Quality"})
+    assert c.score == critic.INVENTED_CAP
