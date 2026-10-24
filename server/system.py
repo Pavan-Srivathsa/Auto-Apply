@@ -12,6 +12,61 @@ from fastapi import APIRouter
 router = APIRouter(prefix="/system", tags=["system"])
 
 
+CREDITS_URL = "https://openrouter.ai/api/v1/credits"
+KEY_URL = "https://openrouter.ai/api/v1/key"
+BALANCE_TTL = 300                     # seconds between balance reads
+_balance: dict = {"at": 0.0, "value": None}
+
+
+def _read_balance() -> dict:
+    """OpenRouter's own account numbers. Both endpoints are account reads and
+    cost no credits; read at most every BALANCE_TTL seconds anyway."""
+    import os
+
+    import httpx
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not key:
+        return {"ok": False, "error": "no key"}
+    headers = {"Authorization": f"Bearer {key}"}
+    try:
+        r = httpx.get(CREDITS_URL, headers=headers, timeout=10)
+        if r.status_code == 200:
+            d = r.json().get("data", {})
+            total, used = float(d.get("total_credits") or 0), float(d.get("total_usage") or 0)
+            return {"ok": True, "left": round(total - used, 4), "used": round(used, 4), "total": round(total, 4)}
+        if r.status_code in (401, 403):
+            msg = (r.json().get("error") or {}).get("message", "") if r.headers.get("content-type", "").startswith("application/json") else ""
+            if "expired" in msg.lower() or r.status_code == 401:
+                return {"ok": False, "error": "key expired" if "expired" in msg.lower() else "key refused"}
+        # Some keys may not read /credits; the key's own limit is the next best.
+        r = httpx.get(KEY_URL, headers=headers, timeout=10)
+        if r.status_code == 200:
+            d = r.json().get("data", {})
+            left = d.get("limit_remaining")
+            return {"ok": True, "left": None if left is None else round(float(left), 4),
+                    "used": round(float(d.get("usage") or 0), 4), "total": d.get("limit")}
+        return {"ok": False, "error": f"OpenRouter answered {r.status_code}"}
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"ok": False, "error": type(exc).__name__}
+
+
+@router.get("/credits")
+def credits(fresh: bool = False) -> dict:
+    """The header's counter: what was spent today and in the last 7 days
+    (Autopilot's own ledger, no network), and the balance left on OpenRouter."""
+    import time
+
+    from tailor import costs
+    if fresh or time.time() - _balance["at"] > BALANCE_TTL or _balance["value"] is None:
+        _balance["value"], _balance["at"] = _read_balance(), time.time()
+    week = costs.usage(7)
+    from datetime import date
+    today = week["by_day"].get(date.today().isoformat(), 0.0)
+    return {"today": today, "week": week["usd"],
+            "by_provider": {k: v["usd"] for k, v in week["by_provider"].items()},
+            "openrouter": _balance["value"], "checked_at": _balance["at"]}
+
+
 @router.get("/metrics")
 def metrics(days: int = 30) -> dict:
     from outreach import store as outreach_store

@@ -531,6 +531,11 @@
                          font-size: 11px; text-transform: uppercase; letter-spacing: .08em; padding: .3rem .6rem;
                          cursor: pointer; }
   header .pstat[hidden] + button.report, header .count + button.report { margin-left: auto; }
+  header .spend { margin-left: .75rem; background: none; border: 1px solid var(--line); color: var(--muted); font: inherit;
+                  font-size: 12px; padding: .3rem .6rem; cursor: pointer; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  header .spend b { color: var(--ink); font-weight: 600; }
+  header .spend.low b.left, header .spend .bad { color: var(--red); }
+  header .spend:hover { border-color: var(--ink); }
   header button.report:hover { color: var(--ink); border-color: var(--ink); }
   dialog.wide { width: min(640px, 94vw); }
   dialog input[type=text] { width: 100%; padding: .5rem; border: 2px solid var(--line); background: var(--bg);
@@ -563,6 +568,7 @@
   <span class="count" id="count"></span>
   <button class="pstat" id="profileStat" aria-current="false" hidden></button>
   <button class="report" id="reportOpen" title="Report a problem or request a feature">Report</button>
+  <button class="spend" id="spend" title="Model spend; click to re-read the balance" hidden></button>
 </header>
 
 <!-- First run: what is still missing before the first job. Shown on every
@@ -2267,6 +2273,33 @@ async function loadScoutBroken() {
 }
 loadScoutBroken();
 
+// Spend counter: today and the week from Autopilot's own ledger, the balance
+// from OpenRouter's account read (free). The server reads the balance at most
+// every five minutes; a click forces a fresh read.
+const money = (n) => "$" + (n < 10 ? n.toFixed(2) : n.toFixed(1));
+let spendAt = 0;
+async function loadSpend(fresh = false) {
+  const el = $("spend");
+  try {
+    const out = await api("/system/credits" + (fresh ? "?fresh=1" : ""));
+    const or = out.openrouter || {};
+    const left = or.ok && or.left != null
+      ? `<b class="left">${money(or.left)}</b> left`
+      : `<span class="bad">${or.error || "balance unknown"}</span>`;
+    el.innerHTML = `<b>${money(out.today)}</b> today · ${money(out.week)} 7d · ${left}`;
+    el.classList.toggle("low", !!(or.ok && or.left != null && or.left < 2));
+    const parts = Object.entries(out.by_provider || {}).sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k.replace("openrouter:", "")}: ${money(v)}`);
+    el.title = ["Last 7 days by model:", ...parts,
+      or.ok ? `OpenRouter lifetime used ${money(or.used || 0)}` : "",
+      "Click to re-read the balance"].filter(Boolean).join("\n");
+    el.hidden = false;
+  } catch (_) { el.hidden = true; }
+  spendAt = Date.now();
+}
+$("spend").onclick = () => loadSpend(true);
+loadSpend();
+
 api("/review/meta/reject-reasons")
   .then((data) => { reasons = data; })
   .catch(() => { reasons = [{ value: "other", label: "Other" }]; })
@@ -2285,6 +2318,7 @@ function pollNow() {
   else if (view === "skills") { /* read on open; it is rebuilt from the roles */ }
   else Projects.poll();
   loadScoutBroken();
+  if (Date.now() - spendAt > 60000) loadSpend();
   Setup.poll();
 }
 setInterval(pollNow, 5000);

@@ -474,3 +474,8 @@ once. One fit: $0.0078 -> $0.0027.
 Asked: "the education being autofilled is causing errors. fill it only if jobright doesn't fill it"
 Changed: `browser/fill.py`, `browser/forms/engine.py`, `tests/test_forms.py`, `tests/test_fill.py`.
 Intent: Jobright's autofill runs first on every form unless `AUTOPILOT_FORM_FILL=1` or the Autopilot fill button is chosen. School, degree, discipline and graduation year are filled from the profile only on fields still empty after Jobright, and the check pass never overwrites an education field that already has a value.
+
+## 2026-10-24 — Spend counter in the header
+Asked: "have a counter on top of the autopilot. i want to know how much is use and how is saved. i dont want this stats to cost credits tho."
+Changed: `server/system.py` (`/system/credits`), `review/index.html` (the header counter), `tests/test_credits.py`.
+Intent: Today's and the week's spend come from Autopilot's own call ledger (no network); the balance left comes from OpenRouter's free account read, at most every five minutes, or on a click. An expired or refused key is shown in red instead of a number.
