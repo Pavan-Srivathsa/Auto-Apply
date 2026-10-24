@@ -479,3 +479,8 @@ Intent: Jobright's autofill runs first on every form unless `AUTOPILOT_FORM_FILL
 Asked: "have a counter on top of the autopilot. i want to know how much is use and how is saved. i dont want this stats to cost credits tho."
 Changed: `server/system.py` (`/system/credits`), `review/index.html` (the header counter), `tests/test_credits.py`.
 Intent: Today's and the week's spend come from Autopilot's own call ledger (no network); the balance left comes from OpenRouter's free account read, at most every five minutes, or on a click. An expired or refused key is shown in red instead of a number.
+
+## 2026-10-24 — A management key is named, not mistaken for a working one
+Asked: "screen failed: OpenRouter returned 401: User not found."
+Changed: `server/system.py`, `server/prompts.py`, `tests/test_credits.py`.
+Intent: The key pasted was an OpenRouter management (provisioning) key: it reads the balance but every model call is refused. The header counter now says so in red, the setup key box refuses one, and a management key may live in `OPENROUTER_MANAGEMENT_KEY` for the account balance alone.

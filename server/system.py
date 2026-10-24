@@ -24,30 +24,41 @@ def _read_balance() -> dict:
     import os
 
     import httpx
-    key = os.environ.get("OPENROUTER_API_KEY", "")
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    manage = os.environ.get("OPENROUTER_MANAGEMENT_KEY", "").strip()
     if not key:
         return {"ok": False, "error": "no key"}
-    headers = {"Authorization": f"Bearer {key}"}
     try:
-        r = httpx.get(CREDITS_URL, headers=headers, timeout=10)
-        if r.status_code == 200:
-            d = r.json().get("data", {})
-            total, used = float(d.get("total_credits") or 0), float(d.get("total_usage") or 0)
-            return {"ok": True, "left": round(total - used, 4), "used": round(used, 4), "total": round(total, 4)}
-        if r.status_code in (401, 403):
-            msg = (r.json().get("error") or {}).get("message", "") if r.headers.get("content-type", "").startswith("application/json") else ""
-            if "expired" in msg.lower() or r.status_code == 401:
-                return {"ok": False, "error": "key expired" if "expired" in msg.lower() else "key refused"}
-        # Some keys may not read /credits; the key's own limit is the next best.
-        r = httpx.get(KEY_URL, headers=headers, timeout=10)
-        if r.status_code == 200:
-            d = r.json().get("data", {})
-            left = d.get("limit_remaining")
-            return {"ok": True, "left": None if left is None else round(float(left), 4),
-                    "used": round(float(d.get("usage") or 0), 4), "total": d.get("limit")}
-        return {"ok": False, "error": f"OpenRouter answered {r.status_code}"}
+        # The key the models run on: a management (provisioning) key reads
+        # the account but every model call is refused with "User not found".
+        r = httpx.get(KEY_URL, headers={"Authorization": f"Bearer {key}"}, timeout=10)
+        if r.status_code != 200:
+            msg = _message(r)
+            return {"ok": False, "error": "key expired" if "expired" in msg.lower() else "key refused"}
+        d = r.json().get("data", {})
+        if d.get("is_provisioning_key"):
+            return {"ok": False, "error": "management key: models refuse it"}
+        out = {"ok": True, "left": None if d.get("limit_remaining") is None else round(float(d["limit_remaining"]), 4),
+               "used": round(float(d.get("usage") or 0), 4), "total": d.get("limit")}
+        # The account's balance, when a key that may read it is around.
+        for k in (manage, key):
+            if not k:
+                continue
+            r = httpx.get(CREDITS_URL, headers={"Authorization": f"Bearer {k}"}, timeout=10)
+            if r.status_code == 200:
+                c = r.json().get("data", {})
+                total, used = float(c.get("total_credits") or 0), float(c.get("total_usage") or 0)
+                return {"ok": True, "left": round(total - used, 4), "used": round(used, 4), "total": round(total, 4)}
+        return out
     except (httpx.HTTPError, ValueError) as exc:
         return {"ok": False, "error": type(exc).__name__}
+
+
+def _message(r) -> str:
+    try:
+        return (r.json().get("error") or {}).get("message", "")
+    except ValueError:
+        return ""
 
 
 @router.get("/credits")

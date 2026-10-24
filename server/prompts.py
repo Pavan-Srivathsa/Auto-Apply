@@ -244,6 +244,15 @@ def check_key(key: str) -> None:
                                  "openrouter.ai/settings/keys.")
     if response.status_code >= 400:
         raise HTTPException(502, f"OpenRouter answered {response.status_code}")
+    # A management (provisioning) key passes this read and fails every model
+    # call with "User not found".
+    try:
+        provisioning = (response.json().get("data") or {}).get("is_provisioning_key")
+    except ValueError:
+        provisioning = False
+    if provisioning:
+        raise HTTPException(400, "This is a management key; models refuse it. Create a regular "
+                                 "API key at openrouter.ai/settings/keys.")
 
 
 @router.post("/setup/open")

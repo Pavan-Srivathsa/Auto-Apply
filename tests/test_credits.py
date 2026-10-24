@@ -28,6 +28,8 @@ def test_counter_reads_ledger_and_caches_the_balance(tmp_path, monkeypatch):
 
     def fake_get(url, headers=None, timeout=None):
         calls.append(url)
+        if url == system.KEY_URL:
+            return Reply(200, {"data": {"is_provisioning_key": False, "usage": 1, "limit": None}})
         return Reply(200, {"data": {"total_credits": 20, "total_usage": 6.5}})
 
     import httpx
@@ -38,9 +40,9 @@ def test_counter_reads_ledger_and_caches_the_balance(tmp_path, monkeypatch):
     assert out["today"] == 0.75 and out["week"] == 0.75
     assert out["openrouter"] == {"ok": True, "left": 13.5, "used": 6.5, "total": 20.0}
     client.get("/system/credits")
-    assert len(calls) == 1                     # cached: no second read
+    assert len(calls) == 2                     # cached: no second read
     client.get("/system/credits?fresh=1")
-    assert len(calls) == 2
+    assert len(calls) == 4
 
 
 def test_an_expired_key_is_said_not_hidden(monkeypatch):
@@ -48,3 +50,10 @@ def test_an_expired_key_is_said_not_hidden(monkeypatch):
     import httpx
     monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(401, {"error": {"message": "API key expired."}}))
     assert system._read_balance() == {"ok": False, "error": "key expired"}
+
+
+def test_a_management_key_in_the_model_slot_is_said(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-manage")
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(200, {"data": {"is_provisioning_key": True}}))
+    assert system._read_balance()["error"].startswith("management key")
