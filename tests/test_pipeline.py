@@ -22,6 +22,9 @@ def no_brief(*args, **kwargs):
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
+    # These tests are about the letter written with the resume; the fill's
+    # write-on-demand is covered in test_forms and test_apply.
+    monkeypatch.setenv("AUTOPILOT_COVER_ON_DEMAND", "0")
     # Never the network: the letter step calls the model unless stubbed.
     monkeypatch.setattr(pipeline.cover, "write",
                         lambda posting, tex, profile="", extra="", model=None, brief="": CoverLetter(LETTER, model or "test/model"))

@@ -11,6 +11,7 @@ against a job a human has approved.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import tempfile
@@ -382,8 +383,13 @@ def process(job: Job, extra_instruction: str = "", keep_status: bool = False) ->
         tell_tab(job, "done", "Poor fit, says the model; decide on the review page")
         return app_dir
 
-    note += "; " + write_cover_letter(app_dir, posting, result.tex, extra_instruction, stories,
-                                      model=job.tailor_model)
+    if os.environ.get(COVER_ON_DEMAND, "1") == "0":
+        note += "; " + write_cover_letter(app_dir, posting, result.tex, extra_instruction, stories,
+                                          model=job.tailor_model)
+    else:
+        # Written by the fill when the form has a slot for one, or by the
+        # review page's button; most forms never ask (2026-10-24).
+        note += "; cover letter when a form asks for one"
 
     store.set_status(app_dir, held or Status.AWAITING_REVIEW, note)
     if keep_status:
@@ -766,6 +772,7 @@ def write_cover_letter(app_dir: Path, posting, resume_tex: str, extra_instructio
 
 
 REGENERATE_TARGETS = {"resume", "cover"}
+COVER_ON_DEMAND = "AUTOPILOT_COVER_ON_DEMAND"   # "0" writes the letter with the resume, as before
 
 
 def _archived_posting(app_dir: Path, job: Job) -> fetch.Posting:

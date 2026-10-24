@@ -486,9 +486,11 @@ async def fill_async(
     screenshot_to: Path,
     max_steps: int = 40,
     headless: bool = False,
-    cover_letter_pdf: Optional[Path] = None,
+    cover_letter_pdf=None,
     answerer=None,
 ) -> FillResult:
+    """`cover_letter_pdf` is a Path, or a callable that writes the letter and
+    returns one; the callable is called only when the form has a slot."""
     fill_mode = os.environ.get(FILL_MODE_ENV, "").strip()
     deterministic_mode = fill_mode in (AUTOPILOT_MODE, JOBRIGHT_CHECK_MODE)
     agent_on = os.environ.get(AGENT_ENV, "1") != "0" and not deterministic_mode
@@ -523,6 +525,8 @@ async def fill_async(
             filled = await forms.fill(cdp_url, url, adapter, profile, resume_pdf, cover_letter_pdf)
         except Exception as error:  # noqa: BLE001 - the agent is the fallback
             filled = forms.Report(note=f"failed: {error}")
+        if filled.cover_letter_path:
+            cover_letter_pdf = Path(filled.cover_letter_path)
         log.info(filled.summary())
     elif adapter and not profile:
         filled.note = "base/form.json is missing"
@@ -577,6 +581,8 @@ async def fill_async(
             filled.resume_uploaded = docs.resume_uploaded
             filled.resume_name = docs.resume_name
             filled.cover_letter_uploaded = docs.cover_letter_uploaded
+            if docs.cover_letter_path:
+                cover_letter_pdf = Path(docs.cover_letter_path)
             filled.answered = docs.answered
             filled.corrected = docs.corrected
             filled.errors.extend(docs.errors)
@@ -585,6 +591,8 @@ async def fill_async(
                      "attached" if docs.cover_letter_uploaded else "not attached",
                      len(docs.corrected), len(docs.answered),
                      f"; {'; '.join(docs.errors)}" if docs.errors else "")
+    if callable(cover_letter_pdf):
+        cover_letter_pdf = None      # no slot was found, so no letter was wanted
     target_id = filled.target_id or pressed.target_id
     tab_id = filled.tab_id if filled.target_id else pressed.tab_id
     if not agent_on:

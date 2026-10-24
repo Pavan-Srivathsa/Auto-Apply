@@ -489,3 +489,8 @@ Intent: The key pasted was an OpenRouter management (provisioning) key: it reads
 Asked: "remove the jobright jobs from the scout and let it work only on startups for now"
 Changed: `review/index.html` (a paused watch's roles leave the Jobs list); 40 watches paused in the person's data (Jobright, Simplify, public and large companies), none deleted.
 Intent: Scout checks and lists startups only (the curated AI startups, other venture-backed companies, a16z / YC / Lenny's). Resume a watch from its settings to bring it back.
+
+## 2026-10-24 — Company in the file names; cover letter only when a form asks
+Asked: "take the company name ... and add it to the resume name. Also ... for the cover letter ... only when we open the file and a cover letter needs to be written, you can write it."
+Changed: `apply.py` (`upload_name`, `company_of`, `letter_on_demand`), `pipeline.py` (`AUTOPILOT_COVER_ON_DEMAND`, on by default), `browser/forms/engine.py` and `browser/fill.py` (a letter given as a callable is written when the form shows a cover-letter slot), `server/review.py`, `review/index.html` ("Write it now"), tests.
+Intent: Uploaded files read `<name>_<Company>.pdf`. Tailoring no longer writes a letter; the fill writes one only for a form with a cover-letter slot, and the job page can write one by hand. `AUTOPILOT_COVER_ON_DEMAND=0` restores the old order.

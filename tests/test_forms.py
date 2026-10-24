@@ -546,3 +546,22 @@ def test_education_is_filled_only_where_jobright_left_it_empty():
                      gh_field("4", id="resume", type="file", kind="file", name="resume", label="Resume/CV *")])
     run_documents(page, corrections=profile, fill_known=True)
     assert page.fields["1"]["value"] == "Jobright's school"
+
+
+def test_a_cover_letter_is_written_only_when_the_form_has_a_slot(tmp_path):
+    resume = tmp_path / "Resume_Clay.pdf"; resume.write_bytes(b"%PDF")
+    letter = tmp_path / "Cover_Letter_Clay.pdf"
+    calls = []
+
+    def write():
+        calls.append(1); letter.write_bytes(b"%PDF"); return letter
+
+    no_slot = FakePage([gh_field("1", id="resume", type="file", kind="file", name="resume", label="Resume/CV *"),
+                        gh_field("2", id="first_name", label="First Name", value="Jo")])
+    report = run_documents(no_slot, resume=resume, cover=write)
+    assert calls == [] and not report.cover_letter_path
+    with_slot = FakePage([gh_field("1", id="resume", type="file", kind="file", name="resume", label="Resume/CV *"),
+                          gh_field("3", id="cover_letter", type="file", kind="file", name="cover_letter", label="Cover Letter"),
+                          gh_field("2", id="first_name", label="First Name", value="Jo")])
+    report = run_documents(with_slot, resume=resume, cover=write)
+    assert calls == [1] and report.cover_letter_path == str(letter)

@@ -615,6 +615,7 @@ class Report:
     resume_uploaded: bool = False
     resume_name: str = ""
     cover_letter_uploaded: bool = False
+    cover_letter_path: str = ""                    # the letter written for this form's slot, when it was written here
     errors: list[str] = field(default_factory=list)
     note: str = ""
     snapshot: dict = field(default_factory=dict)   # question -> value, after the pass
@@ -1173,6 +1174,15 @@ class Engine:
                         report.errors.append(f"resume upload did not take (input holds {name!r})")
                 except Exception as error:  # noqa: BLE001
                     report.errors.append(f"resume upload: {error}")
+        if self.cover_letter and cover_input is not None and callable(self.cover_letter):
+            # Written only now that the form has shown a slot for one: a
+            # letter no form asks for is model spend nobody reads (2026-10-24).
+            try:
+                self.cover_letter = await asyncio.to_thread(self.cover_letter)
+            except Exception as error:  # noqa: BLE001 - the resume still counts
+                report.errors.append(f"writing the cover letter: {error}")
+                self.cover_letter = None
+            report.cover_letter_path = str(self.cover_letter or "")
         if self.cover_letter and cover_input is not None:
             try:
                 name = await self.upload(cover_input, self.cover_letter)

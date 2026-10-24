@@ -1274,7 +1274,11 @@ async function show(id) {
         ? `<div><h3>Cover letter</h3>
             <div class="card"><pre class="posting">${escape(data.cover_letter_error)}</pre>
             <p class="note">The resume is unaffected. Re-tailor to try the letter again.</p></div></div>`
-        : "";
+        : data.artifacts.includes("resume.pdf")
+          ? `<div><h3>Cover letter</h3><div class="card"><p class="note">Not written yet: the fill writes it
+              when the form has a cover-letter slot.</p>
+              <button class="act" id="coverNow">Write it now</button></div></div>`
+          : "";
   const outreachDoc = outreachHtml(id, outreach);
 
   $("detail").innerHTML = `
@@ -1467,6 +1471,7 @@ async function show(id) {
     };
   }
   if ($("askGo")) wireThread(id, data);
+  if ($("coverNow")) $("coverNow").onclick = () => { const b = $("coverGo"); if (b) { b.scrollIntoView({ block: "center" }); b.click(); } };
   if ($("resumeEditText")) wireResumeEditor(id, data);
   if ($("coverEditText")) wireCoverEditor(id, data);
   if ($("rememberGo")) wireRemember(id);

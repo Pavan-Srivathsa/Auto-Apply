@@ -789,8 +789,11 @@ def test_the_page_can_fetch_the_tailored_files_under_their_upload_names(client, 
     job_id, app_dir = reviewable_job()
     store.write(app_dir, "cover_letter.pdf", b"%PDF-letter")
     body = client.post(f"/review/{job_id}/files").json()
-    assert body["resume"]["name"] == "Jane_Doe_Resume.pdf"
-    assert body["cover_letter"]["name"] == "Jane_Doe_Cover_Letter.pdf"
+    # The employer's name rides on the file (2026-10-24).
+    company = __import__("apply").company_of(app_dir)
+    suffix = f"_{company}" if company else ""
+    assert body["resume"]["name"] == f"Jane_Doe_Resume{suffix}.pdf"
+    assert body["cover_letter"]["name"] == f"Jane_Doe_Cover_Letter{suffix}.pdf"
     assert base64.b64decode(body["cover_letter"]["b64"]) == b"%PDF-letter"
     assert body["resume"]["type"] == "application/pdf"
 

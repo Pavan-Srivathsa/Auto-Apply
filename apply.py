@@ -37,12 +37,33 @@ DEFAULT_RESUME_FILENAME = "Resume"
 DEFAULT_COVER_LETTER_FILENAME = "Cover_Letter"
 
 
-def _filename(env: str, default: str) -> str:
-    """An upload's stem, with spaces as underscores and no path characters."""
-    name = os.environ.get(env, "").strip() or default
-    name = name.removesuffix(".pdf")
-    name = "_".join(name.split())
+def _clean(name: str, default: str = "") -> str:
+    """Spaces as underscores and no path characters."""
+    name = "_".join(name.removesuffix(".pdf").split())
     return "".join(c for c in name if c.isalnum() or c in "_-") or default
+
+
+def _filename(env: str, default: str) -> str:
+    """An upload's stem, from the person's setting."""
+    return _clean(os.environ.get(env, "").strip() or default, default)
+
+
+def company_of(app_dir: Path) -> str:
+    """The employer this folder was made for, as a file-name part."""
+    try:
+        import json
+        return _clean(json.loads((app_dir / "job.json").read_text()).get("company") or "")
+    except (OSError, ValueError):
+        return ""
+
+
+def upload_name(stem: str, app_dir: Path) -> str:
+    """"Pavan_Resume" -> "Pavan_Resume_Clay": the reader at the company sees
+    their own name on the file (2026-10-24)."""
+    company = company_of(app_dir)
+    if not company or company.lower() in stem.lower():
+        return stem
+    return f"{stem}_{company}"
 
 
 def resume_filename() -> str:
@@ -62,10 +83,23 @@ def upload_copy(app_dir: Path, source: str = "resume.pdf", stem: Optional[str] =
     """
     if not (app_dir / source).exists():
         return None
-    target = app_dir / f"{stem or resume_filename()}.pdf"
+    target = app_dir / f"{upload_name(stem or resume_filename(), app_dir)}.pdf"
     if not target.exists():
         shutil.copyfile(app_dir / source, target)
     return target
+
+
+def letter_on_demand(job: Job, app_dir: Path):
+    """A callable the fill calls only when the form has a cover-letter slot:
+    it writes the letter into this folder and returns the named copy."""
+    def write() -> Optional[Path]:
+        import pipeline
+        posting = pipeline._archived_posting(app_dir, job)
+        note = pipeline.write_cover_letter(app_dir, posting, (app_dir / "resume.tex").read_text(),
+                                           stories=profile.read_used(app_dir), model=job.tailor_model)
+        print(f"  form has a cover-letter slot: {note}")
+        return upload_copy(app_dir, "cover_letter.pdf", cover_letter_filename())
+    return write
 
 
 def condensed(errors: list[str], limit: int = 5, width: int = 160) -> list[str]:
@@ -106,7 +140,7 @@ def fill_one(job: Job) -> bool:
     queue.update(job.id, status=Status.FILLING)
     store.set_status(app_dir, Status.FILLING)
 
-    cover_letter = upload_copy(app_dir, "cover_letter.pdf", cover_letter_filename())
+    cover_letter = upload_copy(app_dir, "cover_letter.pdf", cover_letter_filename()) or letter_on_demand(job, app_dir)
     # Open questions on the form are answered by the tailoring model from
     # this application's own material, never by the browser model.
     answerer = answers.Answerer(answers.Context.from_app_dir(

@@ -164,12 +164,14 @@ def test_the_cover_letter_is_uploaded_under_its_own_name(monkeypatch):
     assert calls["cover_letter_pdf"].read_bytes() == b"%PDF-1.5 letter"
 
 
-def test_no_cover_letter_means_none_is_offered(monkeypatch):
+def test_no_cover_letter_means_one_is_written_only_on_demand(monkeypatch):
+    """No letter on file: the fill gets a writer, not a file, and calls it
+    only when the form shows a slot (2026-10-24)."""
     job, app_dir = approved_job()
     calls = stub_fill(monkeypatch)
     apply.fill_one(job)
-    assert calls["cover_letter_pdf"] is None
-    assert not list(app_dir.glob("*over*")), "no stray copy without a source"
+    assert callable(calls["cover_letter_pdf"])
+    assert not list(app_dir.glob("*over*")), "nothing written while no form asked"
 
 
 def test_errors_are_condensed_to_distinct_one_liners():
@@ -209,3 +211,13 @@ def test_answers_are_archived_and_counted(monkeypatch):
     apply.fill_one(job)
     assert "**Why here?**" in (app_dir / "answers.md").read_text()
     assert "1 question(s) answered" in (app_dir / "fill_notes.md").read_text()
+
+
+def test_upload_copies_carry_the_company(tmp_path, monkeypatch):
+    import json
+    import apply
+    monkeypatch.setenv("AUTOPILOT_RESUME_FILENAME", "Pavan Resume")
+    (tmp_path / "job.json").write_text(json.dumps({"company": "Thermo Fisher Scientific"}))
+    (tmp_path / "resume.pdf").write_bytes(b"%PDF")
+    assert apply.upload_copy(tmp_path).name == "Pavan_Resume_Thermo_Fisher_Scientific.pdf"
+    assert apply.upload_name("Clay_Resume", tmp_path.parent) == "Clay_Resume"   # no job.json: unchanged

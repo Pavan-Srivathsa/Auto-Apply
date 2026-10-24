@@ -1014,7 +1014,7 @@ def files_for_the_page(job_id: str) -> dict:
                               ("cover_letter", "cover_letter.pdf", apply_script.cover_letter_filename())):
         path = app_dir / source
         if path.exists():
-            out[key] = {"name": f"{stem}.pdf", "type": "application/pdf",
+            out[key] = {"name": f"{apply_script.upload_name(stem, app_dir)}.pdf", "type": "application/pdf",
                         "b64": base64.b64encode(path.read_bytes()).decode()}
     return out
 
