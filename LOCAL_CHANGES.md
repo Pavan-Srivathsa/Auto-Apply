@@ -484,3 +484,8 @@ Intent: Today's and the week's spend come from Autopilot's own call ledger (no n
 Asked: "screen failed: OpenRouter returned 401: User not found."
 Changed: `server/system.py`, `server/prompts.py`, `tests/test_credits.py`.
 Intent: The key pasted was an OpenRouter management (provisioning) key: it reads the balance but every model call is refused. The header counter now says so in red, the setup key box refuses one, and a management key may live in `OPENROUTER_MANAGEMENT_KEY` for the account balance alone.
+
+## 2026-10-24 — Scout on startups only, for now
+Asked: "remove the jobright jobs from the scout and let it work only on startups for now"
+Changed: `review/index.html` (a paused watch's roles leave the Jobs list); 40 watches paused in the person's data (Jobright, Simplify, public and large companies), none deleted.
+Intent: Scout checks and lists startups only (the curated AI startups, other venture-backed companies, a16z / YC / Lenny's). Resume a watch from its settings to bring it back.

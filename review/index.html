@@ -2391,7 +2391,8 @@ const Scout = (() => {
   // Every listed role once: the same job on Lenny's and on the company's own
   // board is one row with both sources on it.
   function allJobs(only) {
-    const keep = (w) => only ? w.id === only : !w.own_tab;
+    // A paused watch's roles leave the list with it (startups only, 2026-10-24).
+    const keep = (w) => only ? w.id === only : !w.own_tab && w.enabled;
     const queued = new Set((state.hits || []).filter((h) => h.status === "queued").map((h) => `${h.watch_id}|${h.posting.id}`));
     const merged = new Map();
     for (const w of (state.watches || []).filter(keep)) {
